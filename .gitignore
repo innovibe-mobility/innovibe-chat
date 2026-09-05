@@ -1,0 +1,14 @@
+# Never upload these -- they contain real secret keys
+.env.local
+.env*.local
+
+# Don't upload installed packages -- everyone reinstalls these themselves
+node_modules/
+
+# Next.js build output -- gets regenerated automatically
+.next/
+out/
+
+# Editor/OS clutter
+.DS_Store
+*.tsbuildinfo
