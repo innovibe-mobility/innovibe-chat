@@ -37,6 +37,8 @@ export default function ChatPage() {
   const router = useRouter();
   const [userId, setUserId] = useState<string | null>(null);
   const [userRole, setUserRole] = useState<string>("employee");
+  const [companyLogo, setCompanyLogo] = useState<string | null>(null);
+  const [companyName, setCompanyName] = useState<string | null>(null);
   const [channels, setChannels] = useState<Channel[]>([]);
   const [dmChannels, setDmChannels] = useState<Channel[]>([]);
   const [dmNames, setDmNames] = useState<Record<string, string>>({});
@@ -69,11 +71,13 @@ export default function ChatPage() {
       setUserId(data.session.user.id);
       supabase
         .from("profiles")
-        .select("role")
+        .select("role, company_name, company_logo_url")
         .eq("id", data.session.user.id)
         .single()
         .then(({ data: profile }) => {
           if (profile?.role) setUserRole(profile.role);
+          if (profile?.company_name) setCompanyName(profile.company_name);
+          if (profile?.company_logo_url) setCompanyLogo(profile.company_logo_url);
         });
     });
 
@@ -448,9 +452,9 @@ export default function ChatPage() {
         <div className="px-4 py-4 border-b border-graphite-700 flex items-center justify-between">
           <div className="flex items-center gap-2">
             <img
-              src="/innovibe-logo.png"
-              alt="InnoVibe Mobility"
-              className="h-8 w-auto rounded-md bg-white px-2 py-1"
+              src={userRole === "vendor" && companyLogo ? companyLogo : "/innovibe-logo.png"}
+              alt={userRole === "vendor" && companyName ? companyName : "InnoVibe Mobility"}
+              className="h-8 w-auto rounded-md bg-white px-2 py-1 object-contain"
             />
           </div>
           <button
