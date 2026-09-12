@@ -5,12 +5,11 @@ export default function LandingPage() {
     <div className="min-h-screen bg-graphite-900 text-white flex flex-col">
       <header className="px-6 md:px-10 py-5 flex items-center justify-between">
         <div className="flex items-center gap-2">
-          <span className="w-7 h-7 rounded-md bg-signal-500 text-graphite-900 flex items-center justify-center text-sm font-bold">
-            ⚡
-          </span>
-          <span className="font-display font-semibold tracking-tight text-lg">
-            InnoVibe
-          </span>
+          <img
+            src="/innovibe-logo.png"
+            alt="InnoVibe Mobility"
+            className="h-8 w-auto rounded-md bg-white px-2 py-1"
+          />
         </div>
         <Link
           href="/login"

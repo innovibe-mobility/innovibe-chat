@@ -447,12 +447,11 @@ export default function ChatPage() {
       >
         <div className="px-4 py-4 border-b border-graphite-700 flex items-center justify-between">
           <div className="flex items-center gap-2">
-            <span className="w-6 h-6 rounded-md bg-signal-500 text-graphite-900 flex items-center justify-center text-sm font-bold">
-              ⚡
-            </span>
-            <span className="font-display font-semibold text-white tracking-tight">
-              InnoVibe
-            </span>
+            <img
+              src="/innovibe-logo.png"
+              alt="InnoVibe Mobility"
+              className="h-8 w-auto rounded-md bg-white px-2 py-1"
+            />
           </div>
           <button
             onClick={() => setShowSidebar(false)}
