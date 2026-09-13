@@ -49,7 +49,8 @@ export async function POST(req: NextRequest) {
 
   // 3. Find your own admin user id (to add you to their channel too)
   const { data: adminUserList } = await admin.auth.admin.listUsers();
-  const adminUser = adminUserList?.users.find((u) => u.email === adminEmail);
+  const users = adminUserList?.users ?? [];
+  const adminUser = users.find((u: { email?: string; id: string }) => u.email === adminEmail);
   if (!adminUser) {
     return NextResponse.json(
       { error: `Vendor created, but couldn't find admin account for ${adminEmail}.` },
