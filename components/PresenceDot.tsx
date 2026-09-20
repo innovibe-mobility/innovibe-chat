@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
 
 type Props = {
@@ -8,15 +8,29 @@ type Props = {
   className?: string;
 };
 
-export default function PresenceDot({ userId, className = "" }: Props) {
+export default function PresenceDot({
+  userId,
+  className = "",
+}: Props) {
   const [online, setOnline] = useState(false);
 
-  async function load() {
-    const { data } = await supabase
+  const load = useCallback(async () => {
+    if (!userId) {
+      setOnline(false);
+      return;
+    }
+
+    const { data, error } = await supabase
       .from("user_presence")
       .select("status, last_seen_at")
       .eq("user_id", userId)
       .maybeSingle();
+
+    if (error) {
+      console.error("Presence check failed:", error);
+      setOnline(false);
+      return;
+    }
 
     if (!data) {
       setOnline(false);
@@ -24,31 +38,27 @@ export default function PresenceDot({ userId, className = "" }: Props) {
     }
 
     const lastSeen = new Date(data.last_seen_at).getTime();
-    const fresh = Date.now() - lastSeen < 2 * 60 * 1000;
-    setOnline(data.status === "online" && fresh);
-  }
+
+    const fresh =
+      Date.now() - lastSeen < 2 * 60 * 1000;
+
+    setOnline(
+      data.status === "online" && fresh
+    );
+  }, [userId]);
 
   useEffect(() => {
-    load();
+    void load();
 
-    const channel = supabase
-      .channel(`presence:${userId}`)
-      .on(
-        "postgres_changes",
-        {
-          event: "*",
-          schema: "public",
-          table: "user_presence",
-          filter: `user_id=eq.${userId}`,
-        },
-        load
-      )
-      .subscribe();
+    // Refresh presence every 30 seconds.
+    const interval = window.setInterval(() => {
+      void load();
+    }, 30_000);
 
     return () => {
-      supabase.removeChannel(channel);
+      window.clearInterval(interval);
     };
-  }, [userId]);
+  }, [load]);
 
   return (
     <span
