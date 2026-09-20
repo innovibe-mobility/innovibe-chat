@@ -4,14 +4,22 @@ import { createClient } from "@supabase/supabase-js";
 export async function POST(req: NextRequest) {
   try {
     const groqKey = process.env.GROQ_API_KEY;
-    const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
+    const supabaseUrl =
+      process.env.NEXT_PUBLIC_SUPABASE_URL;
     const supabaseAnonKey =
       process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY;
+    const serviceRoleKey =
+      process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+    // =========================================================
+    // ENVIRONMENT VARIABLES
+    // =========================================================
 
     if (!groqKey) {
       return NextResponse.json(
         {
-          error: "GROQ_API_KEY is not configured.",
+          error:
+            "GROQ_API_KEY is not configured.",
         },
         { status: 500 }
       );
@@ -27,62 +35,127 @@ export async function POST(req: NextRequest) {
       );
     }
 
+    if (!serviceRoleKey) {
+      return NextResponse.json(
+        {
+          error:
+            "SUPABASE_SERVICE_ROLE_KEY is not configured.",
+        },
+        { status: 500 }
+      );
+    }
+
     // =========================================================
     // AUTHENTICATION
     // =========================================================
 
-    const authHeader = req.headers.get("authorization");
+    const authHeader =
+      req.headers.get("authorization");
 
-    if (!authHeader?.startsWith("Bearer ")) {
+    if (
+      !authHeader?.startsWith("Bearer ")
+    ) {
       return NextResponse.json(
         {
-          error: "Authentication required.",
+          error:
+            "Authentication required.",
         },
         { status: 401 }
       );
     }
 
-    const accessToken = authHeader.replace("Bearer ", "");
+    const accessToken =
+      authHeader.replace(
+        "Bearer ",
+        ""
+      );
 
-    const supabase = createClient(
-      supabaseUrl,
-      supabaseAnonKey,
-      {
-        global: {
-          headers: {
-            Authorization: `Bearer ${accessToken}`,
+    // Normal authenticated Supabase client.
+    // This client is used to validate the employee's
+    // session and verify that the employee can access
+    // the requested channel.
+    const supabase =
+      createClient(
+        supabaseUrl,
+        supabaseAnonKey,
+        {
+          global: {
+            headers: {
+              Authorization:
+                `Bearer ${accessToken}`,
+            },
           },
-        },
-      }
-    );
+        }
+      );
 
     const {
-      data: { user },
+      data: {
+        user,
+      },
       error: userError,
-    } = await supabase.auth.getUser(accessToken);
+    } =
+      await supabase.auth.getUser(
+        accessToken
+      );
 
-    if (userError || !user) {
+    if (
+      userError ||
+      !user
+    ) {
       return NextResponse.json(
         {
-          error: "Invalid or expired session.",
+          error:
+            "Invalid or expired session.",
         },
         { status: 401 }
       );
     }
+
+    // =========================================================
+    // SERVER-SIDE ADMIN CLIENT
+    // =========================================================
+    //
+    // This client is NEVER exposed to the browser.
+    //
+    // It is used only after authentication succeeds,
+    // for generating a complete channel-level Daily MOM.
+    //
+    // Normal user/channel access is still checked below
+    // using the authenticated Supabase client.
+    // =========================================================
+
+    const adminSupabase =
+      createClient(
+        supabaseUrl,
+        serviceRoleKey,
+        {
+          auth: {
+            autoRefreshToken:
+              false,
+            persistSession:
+              false,
+          },
+        }
+      );
 
     // =========================================================
     // REQUEST
     // =========================================================
 
-    const body = await req.json();
+    const body =
+      await req.json();
 
-    const channelId = body.channel_id;
-    const momDate = body.date;
+    const channelId =
+      body.channel_id;
+
+    const momDate =
+      body.date;
 
     if (!channelId) {
       return NextResponse.json(
         {
-          error: "channel_id is required.",
+          error:
+            "channel_id is required.",
         },
         { status: 400 }
       );
@@ -99,33 +172,92 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================
+    // DATE VALIDATION
+    // =========================================================
+
+    const datePattern =
+      /^\d{4}-\d{2}-\d{2}$/;
+
+    if (
+      !datePattern.test(
+        momDate
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid date format. Use YYYY-MM-DD.",
+        },
+        { status: 400 }
+      );
+    }
+
+    // =========================================================
     // DATE RANGE — INDIA / IST
     // =========================================================
 
-    const startUtc = new Date(
-      `${momDate}T00:00:00+05:30`
-    );
+    const startUtc =
+      new Date(
+        `${momDate}T00:00:00+05:30`
+      );
 
-    const endUtc = new Date(
-      `${momDate}T23:59:59.999+05:30`
-    );
+    const endUtc =
+      new Date(
+        `${momDate}T23:59:59.999+05:30`
+      );
+
+    if (
+      Number.isNaN(
+        startUtc.getTime()
+      ) ||
+      Number.isNaN(
+        endUtc.getTime()
+      )
+    ) {
+      return NextResponse.json(
+        {
+          error:
+            "Invalid MOM date.",
+        },
+        { status: 400 }
+      );
+    }
 
     // =========================================================
-    // CHANNEL
+    // CHANNEL ACCESS CHECK
+    // =========================================================
+    //
+    // IMPORTANT:
+    //
+    // We intentionally use the normal authenticated client
+    // here.
+    //
+    // This means an authenticated employee cannot simply send
+    // an arbitrary private channel ID and use the service-role
+    // client to read it.
+    //
+    // The employee must first have access to the channel.
     // =========================================================
 
     const {
       data: channel,
       error: channelError,
-    } = await supabase
-      .from("channels")
-      .select(
-        "id, name, description, is_private"
-      )
-      .eq("id", channelId)
-      .single();
+    } =
+      await supabase
+        .from("channels")
+        .select(
+          "id, name, description, is_private"
+        )
+        .eq(
+          "id",
+          channelId
+        )
+        .single();
 
-    if (channelError || !channel) {
+    if (
+      channelError ||
+      !channel
+    ) {
       return NextResponse.json(
         {
           error:
@@ -138,27 +270,41 @@ export async function POST(req: NextRequest) {
     // =========================================================
     // 1. FETCH CHAT MESSAGES
     // =========================================================
+    //
+    // Use the server-side client here.
+    //
+    // This allows Daily MOM to read the complete channel
+    // history after the employee has already passed the
+    // channel-access check above.
+    // =========================================================
 
     const {
       data: messages,
       error: messagesError,
-    } = await supabase
-      .from("messages")
-      .select(
-        "id, sender_id, content, file_name, created_at, is_deleted"
-      )
-      .eq("channel_id", channelId)
-      .gte(
-        "created_at",
-        startUtc.toISOString()
-      )
-      .lte(
-        "created_at",
-        endUtc.toISOString()
-      )
-      .order("created_at", {
-        ascending: true,
-      });
+    } =
+      await adminSupabase
+        .from("messages")
+        .select(
+          "id, sender_id, content, file_name, created_at, is_deleted"
+        )
+        .eq(
+          "channel_id",
+          channelId
+        )
+        .gte(
+          "created_at",
+          startUtc.toISOString()
+        )
+        .lte(
+          "created_at",
+          endUtc.toISOString()
+        )
+        .order(
+          "created_at",
+          {
+            ascending: true,
+          }
+        );
 
     if (messagesError) {
       return NextResponse.json(
@@ -188,23 +334,30 @@ export async function POST(req: NextRequest) {
     const {
       data: meetingSummaries,
       error: meetingsError,
-    } = await supabase
-      .from("call_summaries")
-      .select(
-        "id, channel_id, created_by, transcript, summary, created_at"
-      )
-      .eq("channel_id", channelId)
-      .gte(
-        "created_at",
-        startUtc.toISOString()
-      )
-      .lte(
-        "created_at",
-        endUtc.toISOString()
-      )
-      .order("created_at", {
-        ascending: true,
-      });
+    } =
+      await adminSupabase
+        .from("call_summaries")
+        .select(
+          "id, channel_id, created_by, transcript, summary, created_at"
+        )
+        .eq(
+          "channel_id",
+          channelId
+        )
+        .gte(
+          "created_at",
+          startUtc.toISOString()
+        )
+        .lte(
+          "created_at",
+          endUtc.toISOString()
+        )
+        .order(
+          "created_at",
+          {
+            ascending: true,
+          }
+        );
 
     if (meetingsError) {
       return NextResponse.json(
@@ -217,7 +370,7 @@ export async function POST(req: NextRequest) {
     }
 
     // =========================================================
-    // 3. FETCH EMPLOYEE NAMES FOR CHAT MESSAGES
+    // 3. FETCH EMPLOYEE NAMES
     // =========================================================
 
     const senderIds = [
@@ -239,22 +392,41 @@ export async function POST(req: NextRequest) {
       }
     > = {};
 
-    if (senderIds.length > 0) {
+    if (
+      senderIds.length > 0
+    ) {
       const {
         data: profiles,
-      } = await supabase
-        .from("profiles")
-        .select(
-          "id, full_name, role"
-        )
-        .in("id", senderIds);
+        error: profilesError,
+      } =
+        await adminSupabase
+          .from("profiles")
+          .select(
+            "id, full_name, role"
+          )
+          .in(
+            "id",
+            senderIds
+          );
 
-      (profiles ?? []).forEach(
+      if (profilesError) {
+        console.warn(
+          "Could not load employee profiles:",
+          profilesError.message
+        );
+      }
+
+      (
+        profiles ?? []
+      ).forEach(
         (profile: any) => {
-          profileMap[profile.id] = {
+          profileMap[
+            profile.id
+          ] = {
             name:
               profile.full_name ??
               "Employee",
+
             role:
               profile.role ??
               "employee",
@@ -267,58 +439,68 @@ export async function POST(req: NextRequest) {
     // 4. FORMAT CHAT DATA
     // =========================================================
 
-    const chatConversation = (
-      messages ?? []
-    )
-      .filter(
-        (message) =>
-          !message.is_deleted
-      )
-      .map((message) => {
-        const sender =
-          profileMap[
-            message.sender_id
-          ]?.name ?? "Employee";
+    const chatConversation =
+      (messages ?? [])
+        .filter(
+          (message) =>
+            !message.is_deleted
+        )
+        .map(
+          (message) => {
+            const sender =
+              profileMap[
+                message.sender_id
+              ]?.name ??
+              "Employee";
 
-        const time = new Date(
-          message.created_at
-        ).toLocaleTimeString(
-          "en-IN",
-          {
-            timeZone:
-              "Asia/Kolkata",
-            hour: "2-digit",
-            minute: "2-digit",
+            const time =
+              new Date(
+                message.created_at
+              ).toLocaleTimeString(
+                "en-IN",
+                {
+                  timeZone:
+                    "Asia/Kolkata",
+
+                  hour:
+                    "2-digit",
+
+                  minute:
+                    "2-digit",
+                }
+              );
+
+            let content =
+              message.content?.trim() ??
+              "";
+
+            if (
+              !content &&
+              message.file_name
+            ) {
+              content =
+                `[File shared: ${message.file_name}]`;
+            }
+
+            if (!content) {
+              content =
+                "[Message with no text]";
+            }
+
+            return `[${time}] ${sender}: ${content}`;
           }
-        );
-
-        let content =
-          message.content?.trim() ??
-          "";
-
-        if (
-          !content &&
-          message.file_name
-        ) {
-          content =
-            `[File shared: ${message.file_name}]`;
-        }
-
-        if (!content) {
-          content =
-            "[Message with no text]";
-        }
-
-        return `[${time}] ${sender}: ${content}`;
-      })
-      .join("\n");
+        )
+        .join("\n");
 
     // =========================================================
     // 5. FORMAT MEETING DATA
     // =========================================================
 
     const meetingConversation =
-      (meetingSummaries ?? [])
+      (
+        meetingSummaries ??
+        []
+      )
         .map(
           (
             meeting,
@@ -332,7 +514,10 @@ export async function POST(req: NextRequest) {
                 {
                   timeZone:
                     "Asia/Kolkata",
-                  hour: "2-digit",
+
+                  hour:
+                    "2-digit",
+
                   minute:
                     "2-digit",
                 }
@@ -363,10 +548,12 @@ ${
     // =========================================================
 
     const chatCount =
-      messages?.length ?? 0;
+      messages?.length ??
+      0;
 
     const meetingCount =
-      meetingSummaries?.length ?? 0;
+      meetingSummaries?.length ??
+      0;
 
     if (
       chatCount === 0 &&
@@ -494,35 +681,46 @@ ${
         "https://api.groq.com/openai/v1/chat/completions",
         {
           method: "POST",
+
           headers: {
             Authorization:
               `Bearer ${groqKey}`,
+
             "Content-Type":
               "application/json",
           },
-          body: JSON.stringify({
-            model:
-              "openai/gpt-oss-20b",
 
-            temperature: 0.2,
+          body:
+            JSON.stringify({
+              model:
+                "openai/gpt-oss-20b",
 
-            messages: [
-              {
-                role: "system",
-                content:
-                  systemPrompt,
-              },
-              {
-                role: "user",
-                content:
-                  userPrompt,
-              },
-            ],
-          }),
+              temperature: 0.2,
+
+              messages: [
+                {
+                  role:
+                    "system",
+
+                  content:
+                    systemPrompt,
+                },
+
+                {
+                  role:
+                    "user",
+
+                  content:
+                    userPrompt,
+                },
+              ],
+            }),
         }
       );
 
-    if (!summaryRes.ok) {
+    if (
+      !summaryRes.ok
+    ) {
       const errorText =
         await summaryRes.text();
 
@@ -539,9 +737,11 @@ ${
       await summaryRes.json();
 
     const momContent =
-      summaryData.choices?.[0]
+      summaryData
+        .choices?.[0]
         ?.message?.content
-        ?.trim() ?? "";
+        ?.trim() ??
+      "";
 
     if (!momContent) {
       return NextResponse.json(
@@ -556,71 +756,35 @@ ${
     // =========================================================
     // 9. SAVE DAILY MOM
     // =========================================================
-
-    /*
-     * Daily MOM is a shared channel/date report.
-     *
-     * The employee is already authenticated above and has
-     * successfully accessed the requested channel.
-     *
-     * We use the server-side service-role client ONLY for the
-     * final save because the existing RLS update policy
-     * intentionally prevents one employee from updating a
-     * MOM originally created by another employee.
-     *
-     * We do NOT disable RLS and we do NOT change the existing
-     * database policies.
-     */
-
-    const serviceRoleKey =
-      process.env.SUPABASE_SERVICE_ROLE_KEY;
-
-    if (!serviceRoleKey) {
-      return NextResponse.json(
-        {
-          error:
-            "SUPABASE_SERVICE_ROLE_KEY is not configured.",
-        },
-        { status: 500 }
-      );
-    }
-
-    const adminSupabase =
-      createClient(
-        supabaseUrl,
-        serviceRoleKey,
-        {
-          auth: {
-            autoRefreshToken:
-              false,
-            persistSession:
-              false,
-          },
-        }
-      );
-
-    // ---------------------------------------------------------
-    // Check whether a MOM already exists for this
-    // channel + date.
-    // ---------------------------------------------------------
+    //
+    // Daily MOM is a shared channel/date report.
+    //
+    // We use the server-side service-role client here because
+    // one employee may regenerate a MOM originally created
+    // by another employee.
+    //
+    // The original created_by value is preserved when an
+    // existing MOM is updated.
+    // =========================================================
 
     const {
       data: existingMom,
       error: existingMomError,
-    } = await adminSupabase
-      .from("daily_moms")
-      .select(
-        "id, created_by"
-      )
-      .eq(
-        "channel_id",
-        channelId
-      )
-      .eq(
-        "mom_date",
-        momDate
-      )
-      .maybeSingle();
+    } =
+      await adminSupabase
+        .from("daily_moms")
+        .select(
+          "id, created_by"
+        )
+        .eq(
+          "channel_id",
+          channelId
+        )
+        .eq(
+          "mom_date",
+          momDate
+        )
+        .maybeSingle();
 
     if (existingMomError) {
       return NextResponse.json(
@@ -639,39 +803,32 @@ ${
     // ---------------------------------------------------------
 
     if (existingMom) {
-      /*
-       * Update the existing shared MOM.
-       *
-       * IMPORTANT:
-       * We intentionally do NOT update created_by.
-       * The original creator remains the creator.
-       */
-
       const {
         data,
         error,
-      } = await adminSupabase
-        .from("daily_moms")
-        .update({
-          title:
-            `Daily MOM — ${momDate}`,
+      } =
+        await adminSupabase
+          .from("daily_moms")
+          .update({
+            title:
+              `Daily MOM — ${momDate}`,
 
-          content:
-            momContent,
+            content:
+              momContent,
 
-          source_message_count:
-            chatCount +
-            meetingCount,
+            source_message_count:
+              chatCount +
+              meetingCount,
 
-          updated_at:
-            new Date().toISOString(),
-        })
-        .eq(
-          "id",
-          existingMom.id
-        )
-        .select()
-        .single();
+            updated_at:
+              new Date().toISOString(),
+          })
+          .eq(
+            "id",
+            existingMom.id
+          )
+          .select()
+          .single();
 
       if (error) {
         return NextResponse.json(
@@ -691,43 +848,37 @@ ${
     // ---------------------------------------------------------
 
     else {
-      /*
-       * No MOM exists yet for this channel/date.
-       *
-       * The currently authenticated employee becomes the
-       * creator of the new MOM.
-       */
-
       const {
         data,
         error,
-      } = await adminSupabase
-        .from("daily_moms")
-        .insert({
-          channel_id:
-            channelId,
+      } =
+        await adminSupabase
+          .from("daily_moms")
+          .insert({
+            channel_id:
+              channelId,
 
-          mom_date:
-            momDate,
+            mom_date:
+              momDate,
 
-          created_by:
-            user.id,
+            created_by:
+              user.id,
 
-          title:
-            `Daily MOM — ${momDate}`,
+            title:
+              `Daily MOM — ${momDate}`,
 
-          content:
-            momContent,
+            content:
+              momContent,
 
-          source_message_count:
-            chatCount +
-            meetingCount,
+            source_message_count:
+              chatCount +
+              meetingCount,
 
-          updated_at:
-            new Date().toISOString(),
-        })
-        .select()
-        .single();
+            updated_at:
+              new Date().toISOString(),
+          })
+          .select()
+          .single();
 
       if (error) {
         return NextResponse.json(
@@ -749,9 +900,11 @@ ${
     return NextResponse.json({
       success: true,
 
-      mom: savedMom,
+      mom:
+        savedMom,
 
-      date: momDate,
+      date:
+        momDate,
 
       channel:
         channel.name,
