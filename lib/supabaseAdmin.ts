@@ -1,11 +1,19 @@
 import { createClient } from "@supabase/supabase-js";
 
-// SERVER-ONLY client using the service role key. This key bypasses ALL
-// security rules -- it must NEVER be sent to the browser or given a
-// NEXT_PUBLIC_ prefix. Only ever imported inside app/api/ routes.
 export function getSupabaseAdmin() {
-  return createClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL as string,
-    process.env.SUPABASE_SERVICE_ROLE_KEY as string
-  );
+  const url = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const serviceRoleKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
+  if (!url || !serviceRoleKey) {
+    throw new Error(
+      "NEXT_PUBLIC_SUPABASE_URL or SUPABASE_SERVICE_ROLE_KEY is missing."
+    );
+  }
+
+  return createClient(url, serviceRoleKey, {
+    auth: {
+      autoRefreshToken: false,
+      persistSession: false,
+    },
+  });
 }
