@@ -20,6 +20,15 @@ type Channel = {
   post_roles?: string[] | null;
 };
 
+const DEPARTMENT_NAMES = [
+  "innovibe employees",
+  "it",
+  "r&d",
+  "data analytics",
+  "hr",
+  "service",
+];
+
 type Message = {
   id: string;
   channel_id: string;
@@ -72,6 +81,11 @@ export default function ChatPage() {
   const [profileRoles, setProfileRoles] = useState<Record<string, string>>(
     {}
   );
+  const [profileActive, setProfileActive] = useState<Record<string, boolean>>(
+    {}
+  );
+
+  const [departmentChannels, setDepartmentChannels] = useState<Channel[]>([]);
 
   const [showSidebar, setShowSidebar] = useState(false);
 
@@ -171,22 +185,96 @@ export default function ChatPage() {
       });
 
     // Load all employee profiles
+    // Keep every profile available for existing message history,
+    // but separately track active status for the New Message picker.
     supabase
       .from("profiles")
-      .select("id, full_name, role")
-      .then(({ data }) => {
+      .select("id, full_name, role, is_active")
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Failed to load profiles:", error);
+          return;
+        }
+
         if (data) {
           const map: Record<string, string> = {};
           const roleMap: Record<string, string> = {};
+          const activeMap: Record<string, boolean> = {};
 
           data.forEach((p: any) => {
             map[p.id] = p.full_name;
             roleMap[p.id] = p.role ?? "employee";
+            activeMap[p.id] = p.is_active === true;
           });
 
           setProfiles(map);
           setProfileRoles(roleMap);
+          setProfileActive(activeMap);
         }
+      });
+
+    // Load department channels.
+    // Show all six departments in the sidebar even when Supabase RLS
+    // does not return a private department to the current user.
+    // Real channels remain accessible only when the user has access;
+    // missing/private departments are displayed as locked placeholders.
+    supabase
+      .from("channels")
+      .select(
+        "id, name, description, is_private, created_by, post_roles"
+      )
+      .order("name")
+      .then(({ data, error }) => {
+        if (error) {
+          console.error("Failed to load department channels:", error);
+          return;
+        }
+
+        const returnedDepartments = ((data ?? []) as Channel[]).filter(
+          (channel) =>
+            DEPARTMENT_NAMES.includes(channel.name.trim().toLowerCase())
+        );
+
+        const byName = new Map(
+          returnedDepartments.map((channel) => [
+            channel.name.trim().toLowerCase(),
+            channel,
+          ])
+        );
+
+        const allDepartments: Channel[] = DEPARTMENT_NAMES.map(
+          (departmentName) => {
+            const existing = byName.get(departmentName);
+
+            if (existing) {
+              return existing;
+            }
+
+            const displayName =
+              departmentName === "innovibe employees"
+                ? "InnoVibe Employees"
+                : departmentName === "it"
+                  ? "IT"
+                  : departmentName === "r&d"
+                    ? "R&D"
+                    : departmentName === "data analytics"
+                      ? "Data Analytics"
+                      : departmentName === "hr"
+                        ? "HR"
+                        : "Service";
+
+            return {
+              id: `department-placeholder:${departmentName}`,
+              name: displayName,
+              description: "You are not a member of this department.",
+              is_private: true,
+              created_by: null,
+              post_roles: null,
+            };
+          }
+        );
+
+        setDepartmentChannels(allDepartments);
       });
   }, [router]);
 
@@ -223,11 +311,18 @@ export default function ChatPage() {
 
     if (!dms) return;
 
-    setDmChannels(dms as Channel[]);
+    // Department channels are private channels too, so keep them out of
+    // Direct Messages. They are displayed in the Departments section.
+    const directMessageChannels = (dms as Channel[]).filter(
+      (channel) =>
+        !DEPARTMENT_NAMES.includes(channel.name.trim().toLowerCase())
+    );
+
+    setDmChannels(directMessageChannels);
 
     const names: Record<string, string> = {};
 
-    for (const dm of dms) {
+    for (const dm of directMessageChannels) {
       const { data: members } = await supabase
         .from("channel_members")
         .select("user_id")
@@ -1355,10 +1450,23 @@ export default function ChatPage() {
           <div className="space-y-0.5">
             {channels
               .filter(
-                (c) =>
-                  !["service-team", "technicians", "vendors"].includes(
+                (c) => {
+                  const hiddenChannels = [
+                    "service-team",
+                    "technicians",
+                    "vendors",
+                    "innovibe employees",
+                    "it",
+                    "r&d",
+                    "data analytics",
+                    "hr",
+                    "service",
+                  ];
+
+                  return !hiddenChannels.includes(
                     c.name.trim().toLowerCase()
-                  )
+                  );
+                }
               )
               .map((c) => {
                 const active = activeChannel?.id === c.id;
@@ -1385,6 +1493,74 @@ export default function ChatPage() {
                   <span className="flex items-center gap-2">
                     <span className={`text-[14px] ${active ? "text-[#6C8AFF]" : "text-white/30 group-hover:text-white/50"} transition-colors`}>#</span>
                     <span className="truncate">{c.name}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Departments */}
+          <div className="mt-6 px-2.5 pb-2 text-[10px] tracking-[0.18em] uppercase text-white/30 font-semibold">
+            Departments
+          </div>
+
+          <div className="space-y-0.5">
+            {departmentChannels.map((department) => {
+              const isPlaceholder = department.id.startsWith(
+                "department-placeholder:"
+              );
+              const active =
+                !isPlaceholder && activeChannel?.id === department.id;
+
+              return (
+                <button
+                  key={department.id}
+                  type="button"
+                  disabled={isPlaceholder}
+                  title={
+                    isPlaceholder
+                      ? "You are not a member of this department"
+                      : department.name
+                  }
+                  onClick={() => {
+                    if (isPlaceholder) return;
+                    setActiveChannel(department);
+                    setShowSidebar(false);
+                  }}
+                  className={`
+                    group relative w-full text-left px-3 py-2 text-[13.5px] rounded-lg
+                    transition-colors duration-150
+                    ${
+                      active
+                        ? "bg-white/[0.07] text-white font-medium"
+                        : isPlaceholder
+                          ? "text-white/25 cursor-not-allowed"
+                          : "text-white/60 hover:text-white hover:bg-white/[0.04]"
+                    }
+                  `}
+                >
+                  {active && (
+                    <span className="absolute left-0 top-1/2 -translate-y-1/2 h-4 w-[2px] rounded-r-full bg-[#6C8AFF]" />
+                  )}
+
+                  <span className="flex items-center gap-2">
+                    <span
+                      className={`text-[14px] ${
+                        active
+                          ? "text-[#6C8AFF]"
+                          : isPlaceholder
+                            ? "text-white/20"
+                            : "text-white/30 group-hover:text-white/50"
+                      } transition-colors`}
+                    >
+                      #
+                    </span>
+                    <span className="truncate">{department.name}</span>
+                    {isPlaceholder && (
+                      <span className="ml-auto text-[11px] text-white/20" aria-label="Locked">
+                        🔒
+                      </span>
+                    )}
                   </span>
                 </button>
               );
@@ -2523,8 +2699,20 @@ export default function ChatPage() {
             {/* Employee list */}
             <div className="py-1">
               {Object.entries(profiles)
-                .filter(
-                  ([id]) => id !== userId
+                .filter(([id]) => {
+                  if (id === userId) return false;
+
+                  // New messages should only be available to active users.
+                  // Vendor/inactive accounts are excluded from the employee picker.
+                  return (
+                    profileActive[id] === true &&
+                    (profileRoles[id] ?? "employee")
+                      .trim()
+                      .toLowerCase() !== "vendor"
+                  );
+                })
+                .sort(([, nameA], [, nameB]) =>
+                  nameA.localeCompare(nameB)
                 )
                 .map(([id, name]) => {
                   const selected =
@@ -2587,10 +2775,16 @@ export default function ChatPage() {
                   );
                 })}
 
-              {Object.keys(profiles)
-                .filter(
-                  (id) => id !== userId
-                ).length === 0 && (
+              {Object.entries(profiles).filter(([id]) => {
+                if (id === userId) return false;
+
+                return (
+                  profileActive[id] === true &&
+                  (profileRoles[id] ?? "employee")
+                    .trim()
+                    .toLowerCase() !== "vendor"
+                );
+              }).length === 0 && (
                 <p className="px-4 py-3 text-sm text-white/40">
                   No other employees found
                   yet.
