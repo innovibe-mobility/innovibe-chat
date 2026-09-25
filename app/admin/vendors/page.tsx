@@ -653,6 +653,12 @@ export default function VendorAdminPage() {
           <p className="text-xs uppercase tracking-[0.18em] text-[#7FB6C9]">InnoVibe Mobility</p>
           <h1 className="text-xl font-bold">Vendor Management</h1>
         </div>
+        <a
+        href="/admin/employees"
+        className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15"
+        >
+          Employees
+        </a>
         <a href="/dashboard" className="rounded-lg bg-white/10 px-4 py-2 text-sm hover:bg-white/15">Back to Chat</a>
       </header>
 

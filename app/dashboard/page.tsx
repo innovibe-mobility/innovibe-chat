@@ -1624,13 +1624,58 @@ export default function ChatPage() {
             })}
           </div>
 
-          {/* Vendor Management — CEO / HR only */}
+          {/* Administration — CEO / HR / Admin */}
           {hasAdminAccess && (
             <div className="mt-6 px-2.5">
               <div className="pb-2 text-[10px] tracking-[0.18em] uppercase text-white/30 font-semibold">
                 Administration
               </div>
 
+              {/* Employee Management */}
+              <a
+                href="/admin/employees"
+                onClick={() => setShowSidebar(false)}
+                className="
+                  group relative w-full flex items-center gap-3
+                  rounded-xl px-3 py-2.5
+                  text-[13.5px] text-white/65
+                  bg-white/[0.025]
+                  border border-white/[0.06]
+                  hover:bg-white/[0.07]
+                  hover:text-white
+                  hover:border-[#53D2DB]/20
+                  transition-all duration-200
+                "
+              >
+                <span
+                  className="
+                    flex h-9 w-9 shrink-0 items-center justify-center
+                    rounded-lg
+                    bg-gradient-to-br from-[#53D2DB]/15 to-[#4F8FBF]/15
+                    border border-[#53D2DB]/10
+                    text-base
+                    group-hover:scale-105
+                    transition-transform duration-200
+                  "
+                >
+                  👥
+                </span>
+
+                <span className="min-w-0 flex-1">
+                  <span className="block font-medium truncate">
+                    Employee Management
+                  </span>
+                  <span className="block mt-0.5 text-[10px] text-white/35 truncate">
+                    Create & manage employees
+                  </span>
+                </span>
+
+                <span className="shrink-0 text-white/25 group-hover:text-[#53D2DB] transition-colors">
+                  →
+                </span>
+              </a>
+
+              {/* Vendor Management */}
               <a
                 href="/admin/vendors"
                 onClick={() => setShowSidebar(false)}
@@ -1644,6 +1689,7 @@ export default function ChatPage() {
                   hover:text-white
                   hover:border-[#53D2DB]/20
                   transition-all duration-200
+                  mt-2
                 "
               >
                 <span

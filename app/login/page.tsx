@@ -12,7 +12,7 @@ export default function LoginPage() {
     "employee"
   );
 
-  const [email, setEmail] = useState("");
+  const [loginUsername, setLoginUsername] = useState("");
   const [password, setPassword] = useState("");
 
   const [error, setError] = useState<string | null>(null);
@@ -24,35 +24,68 @@ export default function LoginPage() {
     setError(null);
     setLoading(true);
 
-    const { error: signInError } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
+    try {
+      const response = await fetch("/api/auth/login", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          login_username: loginUsername,
+          password,
+        }),
       });
 
-    if (signInError) {
-      setError(signInError.message);
+      const data = await response.json();
+
+      if (!response.ok) {
+        setError(data.error || "Invalid Login ID or password.");
+        setLoading(false);
+        return;
+      }
+
+      /*
+       * IMPORTANT:
+       * Store the Supabase session in the existing browser client.
+       * This keeps the existing dashboard authentication/session
+       * system working.
+       */
+      const { error: sessionError } =
+        await supabase.auth.setSession({
+          access_token: data.session.access_token,
+          refresh_token: data.session.refresh_token,
+        });
+
+      if (sessionError) {
+        setError(sessionError.message);
+        setLoading(false);
+        return;
+      }
+
       setLoading(false);
-      return;
+
+      /*
+       * If this is the employee's first login, send them to the
+       * password-change page.
+       */
+      if (data.user?.must_change_password === true) {
+        router.push("/change-password?firstLogin=true");
+        router.refresh();
+        return;
+      }
+
+      router.push("/dashboard");
+      router.refresh();
+    } catch (err: any) {
+      setError(err?.message || "Unable to sign in.");
+      setLoading(false);
     }
-
-    setLoading(false);
-
-    /*
-     * Employee login stays exactly as before.
-     *
-     * Vendor login is handled through the dedicated
-     * /vendor-login route so vendor authentication
-     * remains isolated from the employee workspace.
-     */
-    router.push("/dashboard");
-    router.refresh();
   }
 
   function switchLoginType(type: "employee" | "vendor") {
     setLoginType(type);
     setError(null);
-    setEmail("");
+    setLoginUsername("");
     setPassword("");
 
     if (type === "vendor") {
@@ -79,7 +112,6 @@ export default function LoginPage() {
 
         <div className="rounded-[28px] border border-white/80 bg-white/90 backdrop-blur-xl shadow-[0_30px_80px_-25px_rgba(15,36,56,0.28)] overflow-hidden">
 
-          {/* Top accent */}
           <div className="h-1.5 bg-gradient-to-r from-[#26648B] via-[#53D2DB] to-[#FFE3B3]" />
 
           <div className="p-8 sm:p-10">
@@ -87,9 +119,11 @@ export default function LoginPage() {
             {/* Logo */}
             <div className="flex justify-center mb-7">
               <div className="relative">
+
                 <div className="absolute -inset-3 rounded-3xl bg-[#53D2DB]/20 blur-xl" />
 
                 <div className="relative rounded-2xl bg-white px-5 py-3 shadow-[0_12px_30px_-15px_rgba(15,36,56,0.35)] ring-1 ring-[#DCEAF2]">
+
                   <Image
                     src="/innovibe-logo.png"
                     alt="InnoVibe Mobility"
@@ -98,12 +132,14 @@ export default function LoginPage() {
                     className="h-12 w-auto object-contain"
                     priority
                   />
+
                 </div>
               </div>
             </div>
 
             {/* Heading */}
             <div className="text-center mb-7">
+
               <h1 className="text-2xl sm:text-3xl font-bold tracking-tight text-[#0F2438]">
                 Welcome back
               </h1>
@@ -111,6 +147,7 @@ export default function LoginPage() {
               <p className="mt-2 text-sm text-[#648097]">
                 Sign in to your InnoVibe workspace
               </p>
+
             </div>
 
             {/* Login type selector */}
@@ -119,15 +156,11 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => setLoginType("employee")}
-                className={`
-                  rounded-xl px-4 py-2.5 text-sm font-semibold
-                  transition-all duration-200
-                  ${
-                    loginType === "employee"
-                      ? "bg-white text-[#26648B] shadow-sm ring-1 ring-[#DCEAF2]"
-                      : "text-[#648097] hover:text-[#26648B]"
-                  }
-                `}
+                className={`rounded-xl px-4 py-2.5 text-sm font-semibold transition-all duration-200 ${
+                  loginType === "employee"
+                    ? "bg-white text-[#26648B] shadow-sm ring-1 ring-[#DCEAF2]"
+                    : "text-[#648097] hover:text-[#26648B]"
+                }`}
               >
                 Employee
               </button>
@@ -135,12 +168,7 @@ export default function LoginPage() {
               <button
                 type="button"
                 onClick={() => switchLoginType("vendor")}
-                className="
-                  rounded-xl px-4 py-2.5 text-sm font-semibold
-                  text-[#648097]
-                  hover:text-[#26648B]
-                  transition-all duration-200
-                "
+                className="rounded-xl px-4 py-2.5 text-sm font-semibold text-[#648097] hover:text-[#26648B] transition-all"
               >
                 Vendor
               </button>
@@ -155,6 +183,7 @@ export default function LoginPage() {
               </div>
 
               <div className="min-w-0">
+
                 <p className="text-sm font-semibold text-[#0F2438]">
                   Employee Workspace
                 </p>
@@ -162,54 +191,40 @@ export default function LoginPage() {
                 <p className="text-xs text-[#71879A]">
                   Internal InnoVibe office access
                 </p>
+
               </div>
 
             </div>
 
             {/* Login form */}
-            <form
-              onSubmit={handleSubmit}
-              className="space-y-5"
-            >
+            <form onSubmit={handleSubmit} className="space-y-5">
 
-              {/* Email */}
+              {/* Login ID */}
               <div>
+
                 <label
-                  htmlFor="email"
+                  htmlFor="loginUsername"
                   className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#648097] mb-2"
                 >
-                  Work Email
+                  Login ID
                 </label>
 
                 <input
-                  id="email"
+                  id="loginUsername"
                   required
-                  type="email"
-                  autoComplete="email"
-                  value={email}
-                  onChange={(e) => setEmail(e.target.value)}
-                  className="
-                    w-full
-                    border border-[#D6E4EC]
-                    bg-white
-                    rounded-xl
-                    px-4 py-3
-                    text-sm
-                    text-[#0F2438]
-                    placeholder:text-[#9AAEBC]
-                    shadow-sm
-                    outline-none
-                    transition
-                    focus:border-[#53D2DB]
-                    focus:ring-4
-                    focus:ring-[#53D2DB]/15
-                  "
-                  placeholder="you@innovibemobility.com"
+                  type="text"
+                  autoComplete="username"
+                  value={loginUsername}
+                  onChange={(e) => setLoginUsername(e.target.value)}
+                  className="w-full border border-[#D6E4EC] bg-white rounded-xl px-4 py-3 text-sm text-[#0F2438] placeholder:text-[#9AAEBC] shadow-sm outline-none transition focus:border-[#53D2DB] focus:ring-4 focus:ring-[#53D2DB]/15"
+                  placeholder="greeshma.it"
                 />
+
               </div>
 
               {/* Password */}
               <div>
+
                 <label
                   htmlFor="password"
                   className="block text-xs font-semibold uppercase tracking-[0.12em] text-[#648097] mb-2"
@@ -225,24 +240,23 @@ export default function LoginPage() {
                   autoComplete="current-password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  className="
-                    w-full
-                    border border-[#D6E4EC]
-                    bg-white
-                    rounded-xl
-                    px-4 py-3
-                    text-sm
-                    text-[#0F2438]
-                    placeholder:text-[#9AAEBC]
-                    shadow-sm
-                    outline-none
-                    transition
-                    focus:border-[#53D2DB]
-                    focus:ring-4
-                    focus:ring-[#53D2DB]/15
-                  "
-                  placeholder="••••••••"
+                  className="w-full border border-[#D6E4EC] bg-white rounded-xl px-4 py-3 text-sm text-[#0F2438] placeholder:text-[#9AAEBC] shadow-sm outline-none transition focus:border-[#53D2DB] focus:ring-4 focus:ring-[#53D2DB]/15"
+                  placeholder="Enter your password"
                 />
+
+              </div>
+
+              {/* Forgot password */}
+              <div className="text-right">
+
+                <button
+                  type="button"
+                  onClick={() => router.push("/forgot-password")}
+                  className="text-sm font-semibold text-[#26648B] hover:text-[#174C6C] transition"
+                >
+                  Forgot Password?
+                </button>
+
               </div>
 
               {/* Error */}
@@ -251,9 +265,7 @@ export default function LoginPage() {
 
                   <span className="mt-0.5">!</span>
 
-                  <p>
-                    {error}
-                  </p>
+                  <p>{error}</p>
 
                 </div>
               )}
@@ -262,26 +274,7 @@ export default function LoginPage() {
               <button
                 type="submit"
                 disabled={loading}
-                className="
-                  w-full
-                  bg-gradient-to-r
-                  from-[#26648B]
-                  to-[#1F7894]
-                  hover:from-[#214F70]
-                  hover:to-[#26648B]
-                  text-white
-                  text-sm
-                  font-semibold
-                  rounded-xl
-                  py-3.5
-                  transition-all
-                  duration-200
-                  disabled:opacity-60
-                  disabled:cursor-not-allowed
-                  shadow-[0_12px_28px_-12px_rgba(38,100,139,0.55)]
-                  hover:shadow-[0_16px_32px_-12px_rgba(38,100,139,0.65)]
-                  hover:-translate-y-0.5
-                "
+                className="w-full bg-gradient-to-r from-[#26648B] to-[#1F7894] hover:from-[#214F70] hover:to-[#26648B] text-white text-sm font-semibold rounded-xl py-3.5 transition-all duration-200 disabled:opacity-60 disabled:cursor-not-allowed shadow-[0_12px_28px_-12px_rgba(38,100,139,0.55)] hover:shadow-[0_16px_32px_-12px_rgba(38,100,139,0.65)] hover:-translate-y-0.5"
               >
                 {loading ? "Signing you in..." : "Sign in to Workspace"}
               </button>
@@ -300,13 +293,7 @@ export default function LoginPage() {
                 <button
                   type="button"
                   onClick={() => router.push("/vendor-login")}
-                  className="
-                    text-sm
-                    font-semibold
-                    text-[#26648B]
-                    hover:text-[#174C6C]
-                    transition
-                  "
+                  className="text-sm font-semibold text-[#26648B] hover:text-[#174C6C] transition"
                 >
                   Vendor Login →
                 </button>
@@ -332,11 +319,12 @@ export default function LoginPage() {
 
           </div>
 
-          {/* Footer */}
           <div className="px-8 py-4 bg-[#F7FAFC] border-t border-[#E5EEF3] text-center">
+
             <p className="text-[11px] text-[#94A5B3]">
               InnoVibe Mobility · Internal Workspace
             </p>
+
           </div>
 
         </div>
