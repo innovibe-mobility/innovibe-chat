@@ -115,12 +115,15 @@ export async function POST(req: NextRequest) {
     const body = await req.json();
 
     const fullName = String(body.full_name ?? "").trim();
+
     const department = String(body.department ?? "").trim();
+
     const communicationEmail = String(
       body.communication_email ?? ""
     )
       .trim()
       .toLowerCase();
+
     const role = String(body.role ?? "employee")
       .trim()
       .toLowerCase();
@@ -281,10 +284,15 @@ export async function POST(req: NextRequest) {
         process.env.SMTP_FROM ||
         `InnoVibe Office <${process.env.SMTP_USER}>`;
 
+      const appUrl = (
+        process.env.APP_URL || "http://localhost:3000"
+      ).replace(/\/$/, "");
+
       await transporter.sendMail({
         from,
         to: communicationEmail,
         subject: "InnoVibe Office Credentials",
+
         text: `Hello ${fullName},
 
 Your InnoVibe Office account has been created.
@@ -294,8 +302,8 @@ Login details:
 User ID: ${loginUsername}
 Temporary Password: ${temporaryPassword}
 
-Login:
-${process.env.NEXT_PUBLIC_SITE_URL || "http://localhost:3000"}/login
+Open InnoVibe Office:
+${appUrl}/login
 
 You will be required to change your temporary password when you log in for the first time.
 
@@ -303,38 +311,73 @@ Please keep these credentials confidential.
 
 Regards,
 InnoVibe Office`,
+
         html: `
-          <div style="font-family: Arial, sans-serif; line-height: 1.6; color: #1f2937;">
-            <h2>InnoVibe Office Credentials</h2>
+          <div
+            style="
+              font-family: Arial, sans-serif;
+              line-height: 1.6;
+              color: #1f2937;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 24px;
+            "
+          >
+            <h2 style="color: #26648B; margin-bottom: 8px;">
+              InnoVibe Office
+            </h2>
 
             <p>Hello ${fullName},</p>
 
             <p>
-              Your InnoVibe Office account has been created.
+              Your InnoVibe Office account has been created successfully.
             </p>
 
-            <div style="
-              background: #f3f4f6;
-              padding: 16px;
-              border-radius: 8px;
-              margin: 20px 0;
-            ">
-              <p style="margin: 0 0 8px;">
+            <div
+              style="
+                background: #f3f4f6;
+                padding: 18px;
+                border-radius: 10px;
+                margin: 20px 0;
+              "
+            >
+              <p style="margin: 0 0 10px;">
                 <strong>User ID:</strong> ${loginUsername}
               </p>
 
               <p style="margin: 0;">
-                <strong>Temporary Password:</strong> ${temporaryPassword}
+                <strong>Temporary Password:</strong>
+                ${temporaryPassword}
               </p>
             </div>
 
             <p>
-              <strong>Login:</strong><br>
-              <a href="${
-                process.env.NEXT_PUBLIC_SITE_URL ||
-                "http://localhost:3000"
-              }/login">
-                InnoVibe Office Login
+              Click the button below to open InnoVibe Office:
+            </p>
+
+            <p style="margin: 24px 0;">
+              <a
+                href="${appUrl}/login"
+                style="
+                  display: inline-block;
+                  background: #26648B;
+                  color: #ffffff;
+                  text-decoration: none;
+                  padding: 13px 24px;
+                  border-radius: 8px;
+                  font-weight: bold;
+                  font-size: 15px;
+                "
+              >
+                Open InnoVibe Office
+              </a>
+            </p>
+
+            <p style="font-size: 14px; color: #4b5563;">
+              Or open this address:
+              <br />
+              <a href="${appUrl}/login">
+                ${appUrl}/login
               </a>
             </p>
 
@@ -348,7 +391,7 @@ InnoVibe Office`,
             </p>
 
             <p>
-              Regards,<br>
+              Regards,<br />
               <strong>InnoVibe Office</strong>
             </p>
           </div>

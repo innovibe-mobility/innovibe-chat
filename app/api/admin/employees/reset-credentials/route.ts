@@ -27,7 +27,10 @@ function getMailer() {
       host,
       port,
       secure: port === 465,
-      auth: { user, pass },
+      auth: {
+        user,
+        pass,
+      },
     }),
     from,
   };
@@ -36,6 +39,7 @@ function getMailer() {
 export async function POST(req: NextRequest) {
   try {
     const authorization = req.headers.get("authorization") || "";
+
     const token = authorization.startsWith("Bearer ")
       ? authorization.slice(7)
       : "";
@@ -61,12 +65,14 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: requesterProfile, error: requesterProfileError } =
-      await admin
-        .from("profiles")
-        .select("id, role, is_admin, is_active")
-        .eq("id", requester.id)
-        .maybeSingle();
+    const {
+      data: requesterProfile,
+      error: requesterProfileError,
+    } = await admin
+      .from("profiles")
+      .select("id, role, is_admin, is_active")
+      .eq("id", requester.id)
+      .maybeSingle();
 
     if (requesterProfileError) {
       return NextResponse.json(
@@ -75,7 +81,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const requesterRole = String(requesterProfile?.role ?? "")
+    const requesterRole = String(
+      requesterProfile?.role ?? ""
+    )
       .trim()
       .toLowerCase();
 
@@ -96,7 +104,9 @@ export async function POST(req: NextRequest) {
 
     const body = await req.json();
 
-    const employeeId = String(body.employee_id ?? "").trim();
+    const employeeId = String(
+      body.employee_id ?? ""
+    ).trim();
 
     const suppliedEmail = String(
       body.communication_email ?? ""
@@ -111,7 +121,10 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { data: employee, error: employeeError } = await admin
+    const {
+      data: employee,
+      error: employeeError,
+    } = await admin
       .from("profiles")
       .select(
         "id, full_name, role, login_username, communication_email, is_active"
@@ -164,20 +177,23 @@ export async function POST(req: NextRequest) {
     }
 
     // IMPORTANT:
-    // We keep the existing Supabase Auth user ID.
+    // Keep the existing Supabase Auth user ID.
     // This preserves existing Chat, DMs, groups,
     // department memberships, messages, reactions, etc.
 
     const temporaryPassword = generateTemporaryPassword();
 
-    const { data: authUserData, error: authUserError } =
-      await admin.auth.admin.getUserById(employee.id);
+    const {
+      data: authUserData,
+      error: authUserError,
+    } = await admin.auth.admin.getUserById(employee.id);
 
     if (authUserError || !authUserData.user) {
       return NextResponse.json(
         {
           error:
-            authUserError?.message || "Auth user not found.",
+            authUserError?.message ||
+            "Auth user not found.",
         },
         { status: 404 }
       );
@@ -200,7 +216,9 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    const { error: updateProfileError } = await admin
+    const {
+      error: updateProfileError,
+    } = await admin
       .from("profiles")
       .update({
         communication_email: communicationEmail,
@@ -222,26 +240,122 @@ export async function POST(req: NextRequest) {
 
     const { transporter, from } = getMailer();
 
+    const appUrl = (
+      process.env.APP_URL || "http://localhost:3000"
+    ).replace(/\/$/, "");
+
     try {
       await transporter.sendMail({
         from,
         to: communicationEmail,
         subject: "InnoVibe Office Credentials",
-        text: [
-          "InnoVibe Office Credentials",
-          "",
-          `Hello ${employee.full_name || "Employee"},`,
-          "",
-          "Your InnoVibe Office account has been prepared.",
-          "",
-          `Login ID: ${employee.login_username}`,
-          `Temporary Password: ${temporaryPassword}`,
-          "",
-          "Sign in through the InnoVibe Office login page.",
-          "You will be required to create a new password on your first login.",
-          "",
-          "Please keep these credentials private.",
-        ].join("\n"),
+
+        text: `Hello ${employee.full_name || "Employee"},
+
+Your InnoVibe Office credentials have been reset.
+
+Login details:
+
+User ID: ${employee.login_username}
+Temporary Password: ${temporaryPassword}
+
+Open InnoVibe Office:
+${appUrl}/login
+
+You will be required to change your temporary password when you log in.
+
+Please keep these credentials confidential.
+
+Regards,
+InnoVibe Office`,
+
+        html: `
+          <div
+            style="
+              font-family: Arial, sans-serif;
+              line-height: 1.6;
+              color: #1f2937;
+              max-width: 600px;
+              margin: 0 auto;
+              padding: 24px;
+            "
+          >
+            <h2 style="color: #26648B; margin-bottom: 8px;">
+              InnoVibe Office
+            </h2>
+
+            <p>
+              Hello ${employee.full_name || "Employee"},
+            </p>
+
+            <p>
+              Your InnoVibe Office credentials have been reset.
+            </p>
+
+            <div
+              style="
+                background: #f3f4f6;
+                padding: 18px;
+                border-radius: 10px;
+                margin: 20px 0;
+              "
+            >
+              <p style="margin: 0 0 10px;">
+                <strong>User ID:</strong>
+                ${employee.login_username}
+              </p>
+
+              <p style="margin: 0;">
+                <strong>Temporary Password:</strong>
+                ${temporaryPassword}
+              </p>
+            </div>
+
+            <p>
+              Click the button below to open InnoVibe Office:
+            </p>
+
+            <p style="margin: 24px 0;">
+              <a
+                href="${appUrl}/login"
+                style="
+                  display: inline-block;
+                  background: #26648B;
+                  color: #ffffff;
+                  text-decoration: none;
+                  padding: 13px 24px;
+                  border-radius: 8px;
+                  font-weight: bold;
+                  font-size: 15px;
+                "
+              >
+                Open InnoVibe Office
+              </a>
+            </p>
+
+            <p style="font-size: 14px; color: #4b5563;">
+              Or open this address:
+              <br />
+              <a href="${appUrl}/login">
+                ${appUrl}/login
+              </a>
+            </p>
+
+            <p>
+              You will be required to change your temporary password
+              when you log in.
+            </p>
+
+            <p>
+              Please keep these credentials confidential.
+            </p>
+
+            <p>
+              Regards,<br />
+              <strong>InnoVibe Office</strong>
+            </p>
+          </div>
+        `,
       });
     } catch (mailError: any) {
       return NextResponse.json(
