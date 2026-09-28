@@ -128,7 +128,9 @@ export default function ChatPage() {
     ["admin", "hr", "ceo"].includes(userRole.trim().toLowerCase());
 
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const recordingCleanupRef = useRef<(() => void) | null>(null);
   const recordedChunksRef = useRef<Blob[]>([]);
+  const recordingStopPromiseRef = useRef<Promise<Blob> | null>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
 
   // =========================================================
@@ -1176,7 +1178,7 @@ export default function ChatPage() {
     setSending(false);
   }
 
-  // =========================================================
+    // =========================================================
   // START RECORDING
   // =========================================================
 
@@ -1187,65 +1189,213 @@ export default function ChatPage() {
 
     if (!confirmed) return;
 
+    let displayStream: MediaStream | null = null;
+    let microphoneStream: MediaStream | null = null;
+    let audioContext: AudioContext | null = null;
+
     try {
-      const stream =
-        await (
-          navigator.mediaDevices as any
-        ).getDisplayMedia({
-          video: true,
-          audio: true,
-        });
+      // ---------------------------------------------------------
+      // 1. Capture the Jitsi/browser tab audio
+      // ---------------------------------------------------------
+      displayStream = await (
+        navigator.mediaDevices as any
+      ).getDisplayMedia({
+        video: true,
+        audio: true,
+      });
 
-      const audioTracks =
-        stream.getAudioTracks();
+      const displayAudioTracks =
+        displayStream.getAudioTracks();
 
-      if (audioTracks.length === 0) {
-        alert(
-          'No audio was shared. When the picker opens, make sure to check "Share tab audio" (or "Share system audio"), otherwise there\'s nothing to transcribe.'
-        );
-
-        stream
+      if (displayAudioTracks.length === 0) {
+        displayStream
           .getTracks()
-          .forEach((t: MediaStreamTrack) =>
-            t.stop()
-          );
+          .forEach((track) => track.stop());
+
+        alert(
+          'No meeting audio was shared. In the sharing popup, select the Jitsi meeting tab and make sure "Share tab audio" is enabled.'
+        );
 
         return;
       }
 
-      const audioOnlyStream =
-        new MediaStream(audioTracks);
+      // ---------------------------------------------------------
+      // 2. Capture the user's microphone
+      // ---------------------------------------------------------
+      microphoneStream =
+        await navigator.mediaDevices.getUserMedia({
+          audio: {
+            echoCancellation: true,
+            noiseSuppression: true,
+            autoGainControl: true,
+          },
+          video: false,
+        });
 
-      const recorder =
-        new MediaRecorder(
-          audioOnlyStream
+      // ---------------------------------------------------------
+      // 3. Mix:
+      //    Jitsi/tab audio + microphone audio
+      // ---------------------------------------------------------
+      audioContext =
+        new AudioContext();
+
+      const destination =
+        audioContext.createMediaStreamDestination();
+
+      const displayAudioStream =
+        new MediaStream(
+          displayAudioTracks
         );
+
+      const displaySource =
+        audioContext.createMediaStreamSource(
+          displayAudioStream
+        );
+
+      const microphoneSource =
+        audioContext.createMediaStreamSource(
+          microphoneStream
+        );
+
+      displaySource.connect(destination);
+      microphoneSource.connect(destination);
+
+      // ---------------------------------------------------------
+      // 4. Create recorder from the mixed audio
+      // ---------------------------------------------------------
+      const mixedAudioStream =
+        destination.stream;
+
+      let mimeType = "";
+
+      if (
+        MediaRecorder.isTypeSupported(
+          "audio/webm;codecs=opus"
+        )
+      ) {
+        mimeType =
+          "audio/webm;codecs=opus";
+      } else if (
+        MediaRecorder.isTypeSupported(
+          "audio/webm"
+        )
+      ) {
+        mimeType = "audio/webm";
+      }
+
+      const recorder = mimeType
+        ? new MediaRecorder(
+            mixedAudioStream,
+            {
+              mimeType,
+              audioBitsPerSecond: 32000,
+            }
+          )
+        : new MediaRecorder(
+            mixedAudioStream
+          );
 
       recordedChunksRef.current = [];
 
-      recorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          recordedChunksRef.current.push(
-            e.data
-          );
-        }
-      };
+      // Create the stop promise before recording starts so that
+      // the final audio is captured even if the user stops sharing
+      // the Jitsi tab before clicking the Stop Recording button.
+      recordingStopPromiseRef.current =
+        new Promise<Blob>((resolve, reject) => {
+          recorder.ondataavailable = (
+            event
+          ) => {
+            if (event.data.size > 0) {
+              recordedChunksRef.current.push(
+                event.data
+              );
+            }
+          };
 
-      recorder.onstop = () => {
-        stream
-          .getTracks()
-          .forEach((t: MediaStreamTrack) =>
-            t.stop()
-          );
-      };
+          recorder.onerror = () => {
+            reject(
+              new Error(
+                "Recording failed while creating the audio file."
+              )
+            );
+          };
 
-      recorder.start();
+          recorder.onstop = () => {
+            const blob = new Blob(
+              recordedChunksRef.current,
+              {
+                type:
+                  recorder.mimeType ||
+                  "audio/webm",
+              }
+            );
+
+            resolve(blob);
+          };
+        });
+
+      // If the user stops sharing the Jitsi tab,
+      // automatically stop the recording.
+      displayStream
+        .getVideoTracks()
+        .forEach((track) => {
+          track.onended = () => {
+            if (
+              recorder.state === "recording"
+            ) {
+              recorder.stop();
+            }
+          };
+        });
+
+      recorder.start(1000);
 
       mediaRecorderRef.current =
         recorder;
 
+      // Store cleanup resources so the stop
+      // function can release them later.
+      recordingCleanupRef.current = () => {
+        displayStream
+          ?.getTracks()
+          .forEach((track) =>
+            track.stop()
+          );
+
+        microphoneStream
+          ?.getTracks()
+          .forEach((track) =>
+            track.stop()
+          );
+
+        if (audioContext) {
+          audioContext
+            .close()
+            .catch(() => {});
+        }
+      };
+
       setIsRecording(true);
+
     } catch (err: any) {
+      displayStream
+        ?.getTracks()
+        .forEach((track) =>
+          track.stop()
+        );
+
+      microphoneStream
+        ?.getTracks()
+        .forEach((track) =>
+          track.stop()
+        );
+
+      if (audioContext) {
+        audioContext
+          .close()
+          .catch(() => {});
+      }
+
       alert(
         `Couldn't start recording: ${
           err?.message ??
@@ -1274,21 +1424,75 @@ export default function ChatPage() {
     setIsRecording(false);
     setIsSummarizing(true);
 
-    recorder.stop();
-
-    await new Promise((resolve) => {
-      recorder.onstop = resolve;
-    });
-
-    const audioBlob = new Blob(
-      recordedChunksRef.current,
-      {
-        type: "audio/webm",
-      }
-    );
-
     try {
-      const formData = new FormData();
+      // ---------------------------------------------------------
+      // Wait for the recorder's FINAL data before continuing.
+      // The promise was created when recording started, so this
+      // also works when the Jitsi tab share was stopped first.
+      // ---------------------------------------------------------
+      const stopPromise =
+        recordingStopPromiseRef.current;
+
+      if (!stopPromise) {
+        throw new Error(
+          "Recording session could not be finalized."
+        );
+      }
+
+      if (
+        recorder.state ===
+        "recording"
+      ) {
+        recorder.stop();
+      }
+
+      const audioBlob =
+        await stopPromise;
+
+      recordingStopPromiseRef.current =
+        null;
+      
+
+      // ---------------------------------------------------------
+      // Clean up microphone, Jitsi audio and AudioContext
+      // ---------------------------------------------------------
+      recordingCleanupRef.current?.();
+      recordingCleanupRef.current =
+        null;
+
+      mediaRecorderRef.current =
+        null;
+
+      // ---------------------------------------------------------
+      // Safety check
+      // ---------------------------------------------------------
+      if (audioBlob.size === 0) {
+        alert(
+          "The recording was empty. Please make sure your microphone and Jitsi audio are enabled."
+        );
+
+        return;
+      }
+
+      const MAX_AUDIO_SIZE =
+        4 * 1024 * 1024;
+
+      if (
+        audioBlob.size >
+        MAX_AUDIO_SIZE
+      ) {
+        alert(
+          "The recording is larger than 4 MB. Please keep the meeting recording shorter."
+        );
+
+        return;
+      }
+
+      // ---------------------------------------------------------
+      // Send recording to Whisper + AI summary
+      // ---------------------------------------------------------
+      const formData =
+        new FormData();
 
       formData.append(
         "audio",
@@ -1304,19 +1508,52 @@ export default function ChatPage() {
         }
       );
 
-      const result = await res.json();
+      const responseText =
+        await res.text();
+
+      let result: any = null;
+
+      try {
+        result =
+          JSON.parse(responseText);
+      } catch {
+        result = {
+          error:
+            responseText ||
+            "The transcription service returned an invalid response.",
+        };
+      }
 
       if (!res.ok) {
         alert(
-          `Couldn't generate summary: ${result.error}`
+          `Couldn't generate summary: ${
+            result?.error ??
+            `Request failed with status ${res.status}`
+          }`
         );
 
-        setIsSummarizing(false);
         return;
       }
 
-      // Save summary
-      await supabase
+      if (
+        !result?.transcript ||
+        !String(
+          result.transcript
+        ).trim()
+      ) {
+        alert(
+          "The recording was captured, but no speech was detected. Please make sure your microphone is enabled and the Jitsi tab has audio sharing enabled."
+        );
+
+        return;
+      }
+
+      // ---------------------------------------------------------
+      // Save transcript + summary
+      // ---------------------------------------------------------
+      const {
+        error: summarySaveError,
+      } = await supabase
         .from("call_summaries")
         .insert({
           channel_id:
@@ -1328,24 +1565,63 @@ export default function ChatPage() {
             result.summary,
         });
 
+      if (summarySaveError) {
+        console.error(
+          "Failed to save call summary:",
+          summarySaveError
+        );
+      }
+
+      // ---------------------------------------------------------
       // Post summary into chat
-      await supabase
+      // ---------------------------------------------------------
+      const {
+        error: messageError,
+      } = await supabase
         .from("messages")
         .insert({
           channel_id:
             activeChannel.id,
           sender_id: userId,
-          content: `📋 **Call Summary**\n\n${result.summary}`,
+          content:
+            `📋 **Call Summary**\n\n${result.summary}`,
         });
+
+      if (messageError) {
+        console.error(
+          "Failed to post call summary:",
+          messageError
+        );
+      }
+
     } catch (err: any) {
-      alert(
-        `Something went wrong generating the summary: ${err?.message}`
+      console.error(
+        "Recording/summary error:",
+        err
       );
+
+      alert(
+        `Something went wrong generating the summary: ${
+          err?.message ??
+          "Unknown error"
+        }`
+      );
+
     } finally {
+      recordingCleanupRef.current?.();
+      recordingCleanupRef.current =
+        null;
+
+      mediaRecorderRef.current =
+        null;
+
+      recordingStopPromiseRef.current =
+        null;
+
       setIsSummarizing(false);
     }
   }
-
+  
   // =========================================================
   // SIGN OUT
   // =========================================================
