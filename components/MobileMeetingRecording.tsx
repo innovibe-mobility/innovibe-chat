@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { supabase } from "@/lib/supabaseClient";
 
 type Props = {
@@ -499,8 +500,7 @@ export default function MobileMeetingRecording({
       );
     }
   }
-
-  return (
+    return (
     <>
       {/* MOBILE BUTTON */}
       <button
@@ -515,156 +515,168 @@ export default function MobileMeetingRecording({
         🎙️ Meeting + MOM
       </button>
 
-      {/* MOBILE MEETING */}
-      {open && (
-        <div
-          className="fixed inset-0 z-[10000] bg-[#060810] flex flex-col"
-          style={{
-            pointerEvents: "auto",
-          }}
-        >
-          {/* HEADER */}
-          <div className="shrink-0 px-4 py-3 border-b border-white/[0.08] flex items-center justify-between bg-[#0E1320]">
-            <div className="min-w-0">
-              <h3 className="font-semibold text-white text-[15px]">
-                Meeting + MOM
-              </h3>
-
-              <p className="text-xs text-white/40 truncate">
-                #{channelName}
-              </p>
-            </div>
-
-            <button
-              type="button"
-              onClick={closeMeeting}
-              disabled={
-                stage === "processing"
-              }
-              className="h-9 w-9 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.08] disabled:opacity-30"
+      {/* FULL-SCREEN MEETING OVERLAY */}
+      {typeof document !== "undefined" &&
+        createPortal(
+          open ? (
+            <div
+              className="fixed inset-0 bg-[#060810] flex flex-col"
+              style={{
+                zIndex: 2147483647,
+                width: "100vw",
+                height: "100dvh",
+                minHeight: "100dvh",
+                pointerEvents: "auto",
+              }}
             >
-              ×
-            </button>
-          </div>
+              {/* HEADER */}
+              <div className="shrink-0 px-4 py-3 border-b border-white/[0.08] flex items-center justify-between bg-[#0E1320]">
+                <div className="min-w-0">
+                  <h3 className="font-semibold text-white text-[15px]">
+                    Meeting + MOM
+                  </h3>
 
-          {/* JITSI */}
-          <div
-            ref={jitsiContainerRef}
-            className="flex-1 min-h-0 bg-black"
-          />
-
-          {/* CONTROLS */}
-          <div className="shrink-0 bg-[#0E1320] border-t border-white/[0.08] p-3">
-            {stage === "loading" && (
-              <div className="text-center py-2">
-                <div className="text-2xl mb-2 animate-pulse">
-                  📹
+                  <p className="text-xs text-white/40 truncate">
+                    #{channelName}
+                  </p>
                 </div>
-
-                <p className="text-white font-semibold">
-                  Opening Jitsi...
-                </p>
-
-                <p className="text-xs text-white/40 mt-1">
-                  Connecting to the meeting.
-                </p>
-              </div>
-            )}
-
-            {stage === "meeting" && (
-              <div>
-                <p className="text-xs text-white/45 mb-2 text-center">
-                  Join the meeting and make sure your microphone works.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={startTranscription}
-                  className="w-full rounded-xl bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] text-white py-3 text-sm font-semibold"
-                >
-                  🎙️ Start Meeting Transcription
-                </button>
-              </div>
-            )}
-
-            {stage === "transcribing" && (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs text-red-300">
-                    🔴 Transcription active
-                  </div>
-
-                  <div className="text-xs text-white/40">
-                    {transcript
-                      ? `${transcript.length} characters`
-                      : "Listening..."}
-                  </div>
-                </div>
-
-                {transcript && (
-                  <div className="mb-3 max-h-24 overflow-y-auto rounded-lg bg-black/30 border border-white/[0.06] p-2 text-xs text-white/60 whitespace-pre-wrap">
-                    {transcript}
-                  </div>
-                )}
-
-                <button
-                  type="button"
-                  onClick={stopTranscription}
-                  className="w-full rounded-xl bg-gradient-to-b from-[#E0574F] to-[#C43E37] text-white py-3 text-sm font-semibold"
-                >
-                  ⏹ Stop Meeting & Generate MOM
-                </button>
-              </div>
-            )}
-
-            {stage === "processing" && (
-              <div className="text-center py-2">
-                <div className="text-2xl mb-2 animate-pulse">
-                  🤖
-                </div>
-
-                <p className="text-white font-semibold">
-                  Generating MOM...
-                </p>
-
-                <p className="text-xs text-white/40 mt-1">
-                  Creating the MOM from the real meeting transcript.
-                </p>
-              </div>
-            )}
-
-            {stage === "done" && (
-              <div className="text-center py-2">
-                <div className="text-3xl mb-2">
-                  ✅
-                </div>
-
-                <p className="text-white font-semibold">
-                  MOM generated successfully
-                </p>
-
-                <p className="text-xs text-white/40 mt-1">
-                  The meeting MOM has been posted to #{channelName}.
-                </p>
 
                 <button
                   type="button"
                   onClick={closeMeeting}
-                  className="mt-3 w-full rounded-xl bg-white text-[#101522] py-2.5 text-sm font-semibold"
+                  disabled={stage === "processing"}
+                  className="h-9 w-9 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.08] disabled:opacity-30"
                 >
-                  Done
+                  ×
                 </button>
               </div>
-            )}
 
-            {error && (
-              <div className="mt-2 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-300">
-                {error}
+              {/* JITSI */}
+              <div
+                ref={jitsiContainerRef}
+                className="flex-1 min-h-0 bg-black"
+                style={{
+                  width: "100%",
+                  minHeight: 0,
+                }}
+              />
+
+              {/* CONTROLS */}
+              <div className="shrink-0 bg-[#0E1320] border-t border-white/[0.08] p-3">
+                {stage === "loading" && (
+                  <div className="text-center py-2">
+                    <div className="text-2xl mb-2 animate-pulse">
+                      📹
+                    </div>
+
+                    <p className="text-white font-semibold">
+                      Opening Jitsi...
+                    </p>
+
+                    <p className="text-xs text-white/40 mt-1">
+                      Connecting to the meeting.
+                    </p>
+                  </div>
+                )}
+
+                {stage === "meeting" && (
+                  <div>
+                    <p className="text-xs text-white/45 mb-2 text-center">
+                      Join the meeting and make sure your microphone works.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={startTranscription}
+                      className="w-full rounded-xl bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] text-white py-3 text-sm font-semibold"
+                    >
+                      🎙️ Start Meeting Transcription
+                    </button>
+                  </div>
+                )}
+
+                {stage === "transcribing" && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="text-xs text-red-300">
+                        🔴 Transcription active
+                      </div>
+
+                      <div className="text-xs text-white/40">
+                        {transcript
+                          ? `${transcript.length} characters`
+                          : "Listening..."}
+                      </div>
+                    </div>
+
+                    {transcript && (
+                      <div className="mb-3 max-h-24 overflow-y-auto rounded-lg bg-black/30 border border-white/[0.06] p-2 text-xs text-white/60 whitespace-pre-wrap">
+                        {transcript}
+                      </div>
+                    )}
+
+                    <button
+                      type="button"
+                      onClick={stopTranscription}
+                      className="w-full rounded-xl bg-gradient-to-b from-[#E0574F] to-[#C43E37] text-white py-3 text-sm font-semibold"
+                    >
+                      ⏹ Stop Meeting & Generate MOM
+                    </button>
+                  </div>
+                )}
+
+                {stage === "processing" && (
+                  <div className="text-center py-2">
+                    <div className="text-2xl mb-2 animate-pulse">
+                      🤖
+                    </div>
+
+                    <p className="text-white font-semibold">
+                      Generating MOM...
+                    </p>
+
+                    <p className="text-xs text-white/40 mt-1">
+                      Creating the MOM from the real meeting transcript.
+                    </p>
+                  </div>
+                )}
+
+                {stage === "done" && (
+                  <div className="text-center py-2">
+                    <div className="text-3xl mb-2">
+                      ✅
+                    </div>
+
+                    <p className="text-white font-semibold">
+                      MOM generated successfully
+                    </p>
+
+                    <p className="text-xs text-white/40 mt-1">
+                      The meeting MOM has been posted to #{channelName}.
+                    </p>
+
+                    <button
+                      type="button"
+                      onClick={closeMeeting}
+                      className="mt-3 w-full rounded-xl bg-white text-[#101522] py-2.5 text-sm font-semibold"
+                    >
+                      Done
+                    </button>
+                  </div>
+                )}
+
+                {error && (
+                  <div className="mt-2 rounded-lg border border-red-400/20 bg-red-400/10 px-3 py-2 text-xs text-red-300">
+                    {error}
+                  </div>
+                )}
               </div>
-            )}
-          </div>
-        </div>
-      )}
+            </div>
+          ) : null,
+          document.body
+        )}
     </>
   );
+
+  
 }
