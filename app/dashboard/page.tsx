@@ -2033,7 +2033,7 @@ export default function ChatPage() {
       <main className="relative flex-1 flex flex-col w-full min-w-0 overflow-hidden">
 
         {/* Header */}
-        <header className="sticky top-0 z-20 border-b border-white/[0.06] px-3 md:px-6 py-3 bg-[#0A0E18]/70 backdrop-blur-2xl flex items-center gap-3">
+        <header className="sticky top-0 z-[70] shrink-0 border-b border-white/[0.06] px-3 md:px-6 py-3 bg-[#0A0E18]/95 backdrop-blur-2xl flex items-center gap-3">
 
           {/* Mobile menu */}
           <button
@@ -2167,7 +2167,7 @@ export default function ChatPage() {
               !isSummarizing && (
                 <button
                   onClick={startRecording}
-                  className="shrink-0 text-xs md:text-[12.5px] font-semibold text-[#0B0F1A] rounded-lg px-3 py-2 flex items-center gap-1.5 bg-gradient-to-b from-[#F0D9A8] to-[#E0BE7E] hover:from-[#F5E2BC] hover:to-[#E8C98E] shadow-[0_1px_0_rgba(255,255,255,0.4)_inset,0_4px_14px_-6px_rgba(224,190,126,0.6)] transition-all duration-150"
+                  className="hidden md:flex shrink-0 text-xs md:text-[12.5px] font-semibold text-[#0B0F1A] rounded-lg px-3 py-2 items-center gap-1.5 bg-gradient-to-b from-[#F0D9A8] to-[#E0BE7E] hover:from-[#F5E2BC] hover:to-[#E8C98E] shadow-[0_1px_0_rgba(255,255,255,0.4)_inset,0_4px_14px_-6px_rgba(224,190,126,0.6)] transition-all duration-150"
                   title='Record the call tab (choose "share tab audio" when prompted) and generate a summary afterward'
                 >
                   <span className="text-[14px] leading-none">🎙️</span>
