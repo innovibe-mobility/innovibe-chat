@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState } from "react";
+import * as tus from "tus-js-client";
 import { supabase } from "@/lib/supabaseClient";
 
 type Props = {
@@ -82,22 +83,83 @@ export default function MobileMeetingRecording({
 
     try {
       setStage("uploading");
-      setProgress(10);
+setProgress(1);
 
-      const { error: uploadError } = await supabase.storage
-        .from("meeting-recordings")
-        .upload(path, file, {
-          cacheControl: "3600",
-          contentType: file.type || undefined,
-          upsert: false,
-        });
+const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL;
 
-      if (uploadError) {
-        throw new Error(`Upload failed: ${uploadError.message}`);
+if (!supabaseUrl) {
+  throw new Error("Supabase URL is not configured.");
+}
+
+const projectId = new URL(supabaseUrl).hostname.split(".")[0];
+
+const tusEndpoint =
+  `https://${projectId}.storage.supabase.co/storage/v1/upload/resumable`;
+
+await new Promise<void>((resolve, reject) => {
+  const upload = new tus.Upload(file, {
+    endpoint: tusEndpoint,
+
+    retryDelays: [0, 3000, 5000, 10000, 20000],
+
+    headers: {
+      authorization: `Bearer ${session.access_token}`,
+      "x-upsert": "false",
+    },
+
+    uploadDataDuringCreation: true,
+    removeFingerprintOnSuccess: true,
+
+    chunkSize: 6 * 1024 * 1024,
+
+    metadata: {
+      bucketName: "meeting-recordings",
+      objectName: path,
+      contentType:
+        file.type || "application/octet-stream",
+      cacheControl: "3600",
+    },
+
+    onError(error) {
+      console.error("TUS upload error:", error);
+      reject(
+        new Error(
+          `Upload failed: ${error?.message || "Unknown upload error"}`
+        )
+      );
+    },
+
+    onProgress(bytesUploaded, bytesTotal) {
+      const percentage = Math.round(
+        (bytesUploaded / bytesTotal) * 90
+      );
+
+      setProgress(Math.max(1, percentage));
+    },
+
+    onSuccess() {
+      console.log("Meeting recording uploaded successfully.");
+      resolve();
+    },
+  });
+
+  upload
+    .findPreviousUploads()
+    .then((previousUploads) => {
+      if (previousUploads.length > 0) {
+        upload.resumeFromPreviousUpload(
+          previousUploads[0]
+        );
       }
 
-      setProgress(45);
-      setStage("processing");
+      upload.start();
+    })
+    .catch(reject);
+});
+
+setProgress(92);
+setStage("processing");
+      
 
       const response = await fetch("/api/mobile-meeting-recording", {
         method: "POST",
