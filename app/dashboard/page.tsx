@@ -11,6 +11,7 @@ import PresenceDot from "@/components/PresenceDot";
 import ThreadPanel from "@/components/ThreadPanel";
 import ChatAuditPanel from "@/components/ChatAuditPanel";
 import DailyMOMPanel from "@/components/DailyMOMPanel";
+import MobileMeetingRecording from "@/components/MobileMeetingRecording";
 type Channel = {
   id: string;
   name: string;
@@ -2150,6 +2151,14 @@ export default function ChatPage() {
                 <span className="text-[14px] leading-none">📹</span>
                 <span className="hidden sm:inline">Call</span>
               </a>
+            )}
+
+            {/* Mobile Record / Upload Meeting */}
+            {activeChannel && userId && (
+              <MobileMeetingRecording
+                channelId={activeChannel.id}
+                channelName={activeChannel.name}
+              />
             )}
 
             {/* Record */}
