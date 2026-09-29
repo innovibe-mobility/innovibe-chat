@@ -1,75 +1,390 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabaseClient";
-import { JitsiMeeting } from "@jitsi/react-sdk";
 
 type Props = {
   channelId: string;
   channelName: string;
 };
 
-type Stage = "idle" | "meeting" | "recording" | "processing" | "done";
+type Stage =
+  | "idle"
+  | "loading"
+  | "meeting"
+  | "transcribing"
+  | "processing"
+  | "done";
+
+type JitsiAPI = {
+  executeCommand: (command: string, ...args: any[]) => void;
+  addListener: (event: string, listener: (data: any) => void) => void;
+  removeListener?: (
+    event: string,
+    listener: (data: any) => void
+  ) => void;
+  dispose: () => void;
+};
+
+declare global {
+  interface Window {
+    JitsiMeetExternalAPI?: new (
+      domain: string,
+      options: any
+    ) => JitsiAPI;
+  }
+}
 
 export default function MobileMeetingRecording({
   channelId,
   channelName,
 }: Props) {
-  const jitsiApiRef = useRef<any>(null);
-  const transcriptRef = useRef<string[]>([]);
+  const jitsiContainerRef = useRef<HTMLDivElement>(null);
+  const jitsiApiRef = useRef<JitsiAPI | null>(null);
+
+  const transcriptMapRef = useRef<
+    Map<string, string>
+  >(new Map());
+
+  const transcriptParticipantsRef = useRef<
+    Map<string, string>
+  >(new Map());
 
   const [open, setOpen] = useState(false);
   const [stage, setStage] = useState<Stage>("idle");
   const [transcript, setTranscript] = useState("");
   const [error, setError] = useState("");
 
-  function reset() {
-    transcriptRef.current = [];
+  const roomName = `InnoVibe-${channelName}`;
+
+  useEffect(() => {
+    return () => {
+      try {
+        jitsiApiRef.current?.dispose();
+      } catch {}
+
+      jitsiApiRef.current = null;
+    };
+  }, []);
+
+  function resetTranscript() {
+    transcriptMapRef.current.clear();
+    transcriptParticipantsRef.current.clear();
     setTranscript("");
-    setError("");
-    setStage("idle");
   }
 
-  function close() {
-    if (stage === "processing") return;
+  function buildTranscript() {
+    const lines: string[] = [];
+
+    for (const [messageId, text] of transcriptMapRef.current) {
+      const participant =
+        transcriptParticipantsRef.current.get(messageId) ||
+        "Participant";
+
+      if (text.trim()) {
+        lines.push(`${participant}: ${text.trim()}`);
+      }
+    }
+
+    return lines.join("\n");
+  }
+
+  function updateTranscript() {
+    setTranscript(buildTranscript());
+  }
+
+  function addTranscriptChunk(event: any) {
+    const messageId =
+      event?.messageID ||
+      `${event?.participant?.id || "unknown"}-${Date.now()}`;
+
+    const participant =
+      event?.participant?.name ||
+      "Participant";
+
+    const text =
+      event?.final ||
+      event?.stable ||
+      event?.unstable ||
+      "";
+
+    if (!text.trim()) return;
+
+    transcriptParticipantsRef.current.set(
+      messageId,
+      participant
+    );
+
+    transcriptMapRef.current.set(
+      messageId,
+      text.trim()
+    );
+
+    updateTranscript();
+
+    console.log("JITSI TRANSCRIPT:", {
+      messageId,
+      participant,
+      text,
+      final: event?.final,
+      stable: event?.stable,
+      unstable: event?.unstable,
+    });
+  }
+
+  function attachJitsiListeners(api: JitsiAPI) {
+    api.addListener(
+      "transcriptionChunkReceived",
+      addTranscriptChunk
+    );
+
+    api.addListener(
+      "transcribingStatusChanged",
+      (event: any) => {
+        console.log(
+          "JITSI TRANSCRIBING STATUS:",
+          event
+        );
+
+        if (event?.on) {
+          setStage("transcribing");
+        }
+      }
+    );
+
+    api.addListener(
+      "recordingStatusChanged",
+      (event: any) => {
+        console.log(
+          "JITSI RECORDING STATUS:",
+          event
+        );
+      }
+    );
+
+    api.addListener(
+      "micError",
+      (event: any) => {
+        console.error(
+          "JITSI MIC ERROR:",
+          event
+        );
+
+        setError(
+          event?.message ||
+            "Jitsi could not access the microphone."
+        );
+      }
+    );
+
+    api.addListener(
+      "errorOccurred",
+      (event: any) => {
+        console.error(
+          "JITSI ERROR:",
+          event
+        );
+      }
+    );
+
+    api.addListener(
+      "readyToClose",
+      () => {
+        console.log("Jitsi ready to close");
+      }
+    );
+  }
+
+  async function loadJitsi() {
+    if (window.JitsiMeetExternalAPI) {
+      createJitsi();
+      return;
+    }
+
+    const existingScript =
+      document.querySelector(
+        'script[src="https://meet.jit.si/external_api.js"]'
+      );
+
+    if (existingScript) {
+      const waitForJitsi = () => {
+        if (window.JitsiMeetExternalAPI) {
+          createJitsi();
+        } else {
+          setTimeout(waitForJitsi, 100);
+        }
+      };
+
+      waitForJitsi();
+      return;
+    }
+
+    const script =
+      document.createElement("script");
+
+    script.src =
+      "https://meet.jit.si/external_api.js";
+
+    script.async = true;
+
+    script.onload = () => {
+      if (!window.JitsiMeetExternalAPI) {
+        setError(
+          "Jitsi API loaded but could not be initialized."
+        );
+        setStage("idle");
+        return;
+      }
+
+      createJitsi();
+    };
+
+    script.onerror = () => {
+      setError(
+        "Could not load Jitsi. Please check your internet connection."
+      );
+      setStage("idle");
+    };
+
+    document.head.appendChild(script);
+  }
+
+  function createJitsi() {
+    if (!jitsiContainerRef.current) {
+      setError(
+        "Jitsi meeting container is not ready."
+      );
+      setStage("idle");
+      return;
+    }
+
+    if (!window.JitsiMeetExternalAPI) {
+      setError(
+        "Jitsi API is unavailable."
+      );
+      setStage("idle");
+      return;
+    }
 
     try {
-      jitsiApiRef.current?.dispose?.();
+      jitsiApiRef.current?.dispose();
     } catch {}
 
     jitsiApiRef.current = null;
-    setOpen(false);
-    reset();
+
+    jitsiContainerRef.current.innerHTML = "";
+
+    const api =
+      new window.JitsiMeetExternalAPI(
+        "meet.jit.si",
+        {
+          roomName,
+          parentNode:
+            jitsiContainerRef.current,
+          width: "100%",
+          height: "100%",
+
+          configOverwrite: {
+            startWithAudioMuted: false,
+            startWithVideoMuted: false,
+            prejoinPageEnabled: true,
+            disableAP: true,
+          },
+
+          interfaceConfigOverwrite: {
+            MOBILE_APP_PROMO: false,
+            TOOLBAR_BUTTONS: [
+              "microphone",
+              "camera",
+              "chat",
+              "tileview",
+              "hangup",
+            ],
+          },
+
+          userInfo: {
+            displayName: "InnoVibe User",
+            email: "user@innovibe.local",
+          },
+        }
+      );
+
+    jitsiApiRef.current = api;
+
+    attachJitsiListeners(api);
+
+    setStage("meeting");
   }
 
-  function openMeeting() {
+  async function openMeeting() {
+    console.log(
+      "INNOVIBE MOBILE MEETING CLICKED"
+    );
+
     setError("");
+    resetTranscript();
+    setStage("loading");
     setOpen(true);
-    setStage("meeting");
+
+    setTimeout(() => {
+      void loadJitsi();
+    }, 100);
+  }
+
+  function closeMeeting() {
+    if (
+      stage === "processing"
+    ) {
+      return;
+    }
+
+    try {
+      jitsiApiRef.current?.dispose();
+    } catch {}
+
+    jitsiApiRef.current = null;
+
+    setOpen(false);
+    setStage("idle");
+    resetTranscript();
+    setError("");
   }
 
   function startTranscription() {
     const api = jitsiApiRef.current;
 
     if (!api) {
-      setError("Jitsi meeting is not ready yet.");
+      setError(
+        "Jitsi is not ready yet. Please wait a moment."
+      );
       return;
     }
 
-    transcriptRef.current = [];
-    setTranscript("");
+    resetTranscript();
     setError("");
 
     try {
-      api.executeCommand("startRecording", {
-        transcription: true,
-      });
+      console.log(
+        "STARTING JITSI TRANSCRIPTION"
+      );
 
-      setStage("recording");
+      api.executeCommand(
+        "startRecording",
+        {
+          transcription: true,
+        }
+      );
+
+      setStage("transcribing");
     } catch (err: any) {
-      console.error("Failed to start transcription:", err);
+      console.error(
+        "START TRANSCRIPTION ERROR:",
+        err
+      );
+
       setError(
-        err?.message || "Could not start meeting transcription."
+        err?.message ||
+          "Could not start transcription."
       );
     }
   }
@@ -77,28 +392,56 @@ export default function MobileMeetingRecording({
   async function stopTranscription() {
     const api = jitsiApiRef.current;
 
-    if (!api) return;
-
-    setStage("processing");
-
-    try {
-      api.executeCommand("stopRecording", "local", true);
-    } catch (err) {
-      console.warn("Jitsi transcription stop warning:", err);
+    if (!api) {
+      setError(
+        "Jitsi meeting is not available."
+      );
+      return;
     }
 
-    // Give Jitsi a moment to deliver the final transcript chunk.
-    await new Promise((resolve) => setTimeout(resolve, 2000));
+    setStage("processing");
+    setError("");
 
-    const finalTranscript = transcriptRef.current
-      .join("\n")
-      .trim();
+    try {
+      console.log(
+        "STOPPING JITSI TRANSCRIPTION"
+      );
+
+      api.executeCommand(
+        "stopRecording",
+        "local",
+        true
+      );
+    } catch (err) {
+      console.warn(
+        "Jitsi stop warning:",
+        err
+      );
+    }
+
+    /*
+     * Give Jitsi a moment to deliver
+     * the final transcription chunks.
+     */
+    await new Promise((resolve) =>
+      setTimeout(resolve, 2500)
+    );
+
+    const finalTranscript =
+      buildTranscript().trim();
+
+    console.log(
+      "FINAL TRANSCRIPT:",
+      finalTranscript
+    );
 
     if (!finalTranscript) {
-      setStage("recording");
+      setStage("transcribing");
+
       setError(
-        "No transcript was received. Make sure the meeting participants are speaking and transcription is enabled."
+        "Jitsi did not return any transcript. Please make sure participants are speaking and transcription is available for this meeting."
       );
+
       return;
     }
 
@@ -108,53 +451,79 @@ export default function MobileMeetingRecording({
       } = await supabase.auth.getSession();
 
       if (!session?.access_token) {
-        throw new Error("Your session has expired. Please sign in again.");
+        throw new Error(
+          "Your session has expired. Please sign in again."
+        );
       }
 
-      const response = await fetch("/api/mobile-meeting-transcript", {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${session.access_token}`,
-        },
-        body: JSON.stringify({
-          channel_id: channelId,
-          transcript: finalTranscript,
-        }),
-      });
+      const response = await fetch(
+        "/api/mobile-meeting-transcript",
+        {
+          method: "POST",
 
-      const result = await response.json();
+          headers: {
+            "Content-Type":
+              "application/json",
+            Authorization: `Bearer ${session.access_token}`,
+          },
+
+          body: JSON.stringify({
+            channel_id: channelId,
+            transcript: finalTranscript,
+          }),
+        }
+      );
+
+      const result =
+        await response.json();
 
       if (!response.ok) {
         throw new Error(
-          result?.error || "Failed to generate the meeting MOM."
+          result?.error ||
+            "Failed to generate the meeting MOM."
         );
       }
 
       setStage("done");
     } catch (err: any) {
-      console.error("MOM generation error:", err);
-      setStage("recording");
+      console.error(
+        "MOBILE MOM ERROR:",
+        err
+      );
+
+      setStage("transcribing");
+
       setError(
-        err?.message || "Something went wrong generating the MOM."
+        err?.message ||
+          "Something went wrong while generating the MOM."
       );
     }
   }
 
   return (
     <>
-      {/* Mobile button */}
+      {/* MOBILE BUTTON */}
       <button
         type="button"
         onClick={openMeeting}
-        className="md:hidden fixed left-3 right-3 bottom-[90px] z-40 rounded-xl px-4 py-3 text-sm font-semibold text-white bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] shadow-lg"
+        className="md:hidden fixed left-3 right-3 bottom-[90px] z-[9999] flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] shadow-lg"
+        style={{
+          pointerEvents: "auto",
+          touchAction: "manipulation",
+        }}
       >
         🎙️ Meeting + MOM
       </button>
 
+      {/* MOBILE MEETING */}
       {open && (
-        <div className="fixed inset-0 z-[100] bg-[#060810] flex flex-col">
-          {/* Header */}
+        <div
+          className="fixed inset-0 z-[10000] bg-[#060810] flex flex-col"
+          style={{
+            pointerEvents: "auto",
+          }}
+        >
+          {/* HEADER */}
           <div className="shrink-0 px-4 py-3 border-b border-white/[0.08] flex items-center justify-between bg-[#0E1320]">
             <div className="min-w-0">
               <h3 className="font-semibold text-white text-[15px]">
@@ -168,109 +537,107 @@ export default function MobileMeetingRecording({
 
             <button
               type="button"
-              onClick={close}
-              disabled={stage === "processing"}
-              className="h-8 w-8 rounded-lg text-white/50 hover:text-white hover:bg-white/[0.06] disabled:opacity-30"
+              onClick={closeMeeting}
+              disabled={
+                stage === "processing"
+              }
+              className="h-9 w-9 rounded-lg text-white/60 hover:text-white hover:bg-white/[0.08] disabled:opacity-30"
             >
               ×
             </button>
           </div>
 
-          {/* Jitsi */}
-          <div className="flex-1 min-h-0 relative">
-            <JitsiMeeting
-              domain="meet.jit.si"
-              roomName={`InnoVibe-${channelName}`}
-              configOverwrite={{
-                startWithAudioMuted: false,
-                startWithVideoMuted: false,
-                prejoinPageEnabled: true,
-              }}
-              interfaceConfigOverwrite={{
-                MOBILE_APP_PROMO: false,
-                TOOLBAR_BUTTONS: [
-                  "microphone",
-                  "camera",
-                  "chat",
-                  "tileview",
-                  "hangup",
-                ],
-              }}
-              userInfo={{
-                displayName: "InnoVibe User",
-                email: "user@innovibe.local",
-              }}
-              onApiReady={(api) => {
-                jitsiApiRef.current = api;
+          {/* JITSI */}
+          <div
+            ref={jitsiContainerRef}
+            className="flex-1 min-h-0 bg-black"
+          />
 
-                api.addListener(
-                  "transcriptionChunkReceived",
-                  (event: any) => {
-                    const text =
-                      event?.final ||
-                      event?.stable ||
-                      "";
-
-                    if (!text.trim()) return;
-
-                    const participant =
-                      event?.participant?.name || "Participant";
-
-                    const line = `${participant}: ${text.trim()}`;
-
-                    const existing =
-                      transcriptRef.current;
-
-                    const last =
-                      existing[existing.length - 1];
-
-                    // Avoid duplicate chunks.
-                    if (last === line) return;
-
-                    existing.push(line);
-
-                    const combined = existing.join("\n");
-
-                    setTranscript(combined);
-                  }
-                );
-
-                api.addListener(
-                  "transcribingStatusChanged",
-                  (event: any) => {
-                    console.log(
-                      "Jitsi transcription status:",
-                      event
-                    );
-                  }
-                );
-
-                api.addListener(
-                  "recordingStatusChanged",
-                  (event: any) => {
-                    console.log(
-                      "Jitsi recording/transcription status:",
-                      event
-                    );
-                  }
-                );
-              }}
-              onReadyToClose={() => {
-                jitsiApiRef.current = null;
-              }}
-              getIFrameRef={(iframeRef) => {
-                iframeRef.style.height = "100%";
-                iframeRef.style.width = "100%";
-                iframeRef.style.border = "0";
-              }}
-            />
-          </div>
-
-          {/* Controls */}
+          {/* CONTROLS */}
           <div className="shrink-0 bg-[#0E1320] border-t border-white/[0.08] p-3">
-            {stage === "done" ? (
+            {stage === "loading" && (
               <div className="text-center py-2">
-                <div className="text-3xl mb-2">✅</div>
+                <div className="text-2xl mb-2 animate-pulse">
+                  📹
+                </div>
+
+                <p className="text-white font-semibold">
+                  Opening Jitsi...
+                </p>
+
+                <p className="text-xs text-white/40 mt-1">
+                  Connecting to the meeting.
+                </p>
+              </div>
+            )}
+
+            {stage === "meeting" && (
+              <div>
+                <p className="text-xs text-white/45 mb-2 text-center">
+                  Join the meeting and make sure your microphone works.
+                </p>
+
+                <button
+                  type="button"
+                  onClick={startTranscription}
+                  className="w-full rounded-xl bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] text-white py-3 text-sm font-semibold"
+                >
+                  🎙️ Start Meeting Transcription
+                </button>
+              </div>
+            )}
+
+            {stage === "transcribing" && (
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <div className="text-xs text-red-300">
+                    🔴 Transcription active
+                  </div>
+
+                  <div className="text-xs text-white/40">
+                    {transcript
+                      ? `${transcript.length} characters`
+                      : "Listening..."}
+                  </div>
+                </div>
+
+                {transcript && (
+                  <div className="mb-3 max-h-24 overflow-y-auto rounded-lg bg-black/30 border border-white/[0.06] p-2 text-xs text-white/60 whitespace-pre-wrap">
+                    {transcript}
+                  </div>
+                )}
+
+                <button
+                  type="button"
+                  onClick={stopTranscription}
+                  className="w-full rounded-xl bg-gradient-to-b from-[#E0574F] to-[#C43E37] text-white py-3 text-sm font-semibold"
+                >
+                  ⏹ Stop Meeting & Generate MOM
+                </button>
+              </div>
+            )}
+
+            {stage === "processing" && (
+              <div className="text-center py-2">
+                <div className="text-2xl mb-2 animate-pulse">
+                  🤖
+                </div>
+
+                <p className="text-white font-semibold">
+                  Generating MOM...
+                </p>
+
+                <p className="text-xs text-white/40 mt-1">
+                  Creating the MOM from the real meeting transcript.
+                </p>
+              </div>
+            )}
+
+            {stage === "done" && (
+              <div className="text-center py-2">
+                <div className="text-3xl mb-2">
+                  ✅
+                </div>
 
                 <p className="text-white font-semibold">
                   MOM generated successfully
@@ -282,60 +649,10 @@ export default function MobileMeetingRecording({
 
                 <button
                   type="button"
-                  onClick={close}
+                  onClick={closeMeeting}
                   className="mt-3 w-full rounded-xl bg-white text-[#101522] py-2.5 text-sm font-semibold"
                 >
                   Done
-                </button>
-              </div>
-            ) : stage === "processing" ? (
-              <div className="text-center py-2">
-                <div className="text-2xl mb-2 animate-pulse">
-                  🤖
-                </div>
-
-                <p className="text-white font-semibold">
-                  Generating MOM...
-                </p>
-
-                <p className="text-xs text-white/40 mt-1">
-                  Creating the meeting minutes from the real transcript.
-                </p>
-              </div>
-            ) : stage === "recording" ? (
-              <div>
-                <div className="flex items-center justify-between mb-2">
-                  <div className="text-xs text-white/60">
-                    🔴 Transcription active
-                  </div>
-
-                  <div className="text-xs text-white/30">
-                    {transcript
-                      ? `${transcript.length} characters`
-                      : "Listening..."}
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={stopTranscription}
-                  className="w-full rounded-xl bg-gradient-to-b from-[#E0574F] to-[#C43E37] text-white py-3 text-sm font-semibold"
-                >
-                  ⏹ Stop Meeting & Generate MOM
-                </button>
-              </div>
-            ) : (
-              <div>
-                <p className="text-xs text-white/45 mb-2 text-center">
-                  Join the meeting first, then start transcription.
-                </p>
-
-                <button
-                  type="button"
-                  onClick={startTranscription}
-                  className="w-full rounded-xl bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] text-white py-3 text-sm font-semibold"
-                >
-                  🎙️ Start Meeting Transcription
                 </button>
               </div>
             )}
