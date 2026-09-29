@@ -138,7 +138,7 @@ export default function MobileMeetingRecording({
           reset();
           setOpen(true);
         }}
-        className="md:hidden fixed left-3 right-3 bottom-[76px] z-[55] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-gradient-to-b from-[#9B6CFF] to-[#7650D8] px-3 py-2.5 text-xs font-semibold text-white shadow-[0_10px_30px_-10px_rgba(118,80,216,0.8)] hover:from-[#AA80FF] hover:to-[#835CE5] transition-all"
+        className="md:hidden fixed left-3 right-3 bottom-[90px] z-[55] flex items-center justify-center gap-1.5 rounded-xl border border-white/[0.1] bg-gradient-to-b from-[#9B6CFF] to-[#7650D8] px-3 py-2.5 text-xs font-semibold text-white shadow-[0_10px_30px_-10px_rgba(118,80,216,0.8)] hover:from-[#AA80FF] hover:to-[#835CE5] transition-all"
         title="Upload a phone screen recording and generate the meeting MOM"
       >
         <span className="text-[14px] leading-none">🎙️</span>

@@ -2153,13 +2153,7 @@ export default function ChatPage() {
               </a>
             )}
 
-            {/* Mobile Record / Upload Meeting */}
-            {activeChannel && userId && (
-              <MobileMeetingRecording
-                channelId={activeChannel.id}
-                channelName={activeChannel.name}
-              />
-            )}
+            
 
             {/* Record */}
             {activeChannel &&
@@ -2642,6 +2636,15 @@ export default function ChatPage() {
         ================================================= */}
 
         <div className="relative z-20 border-t border-white/[0.06] px-3 md:px-6 py-3.5 bg-[#0A0E18]/70 backdrop-blur-2xl">
+        {/* Mobile Record / Upload Meeting */}
+{activeChannel && userId && (
+  <div className="md:hidden mb-2.5">
+    <MobileMeetingRecording
+      channelId={activeChannel.id}
+      channelName={activeChannel.name}
+    />
+  </div>
+)}
 
           {/* Reply preview */}
           {replyingTo && (
