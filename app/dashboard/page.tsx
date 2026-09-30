@@ -179,11 +179,15 @@ export default function ChatPage() {
       .order("name")
       .then(({ data }) => {
         if (data) {
-          const channelData = data as Channel[];
+          const channelData = (data as Channel[]).filter(
+  (channel) =>
+    channel.name.trim().toLowerCase() !== "general"
+);
 
-          setChannels(channelData);
+setChannels(channelData);
 
-          setActiveChannel(channelData[0] ?? null);
+setActiveChannel(channelData[0] ?? null);
+          
         }
       });
 
@@ -1067,39 +1071,53 @@ export default function ChatPage() {
   // =========================================================
 
   function canPostHere(): boolean {
-    if (!activeChannel) return false;
+  if (!activeChannel) return false;
 
-    // DMs and group DMs
-    if (activeChannel.is_private) {
-      return true;
-    }
+  const channelName = activeChannel.name.trim().toLowerCase();
+  const normalizedUserRole = userRole.trim().toLowerCase();
 
-    // Public channel without restrictions
-    if (
-      !activeChannel.post_roles ||
-      activeChannel.post_roles.length === 0
-    ) {
-      return true;
-    }
-
-    const normalizedUserRole =
-      userRole.trim().toLowerCase();
-
-    return activeChannel.post_roles
-      .map((r) =>
-        r.trim().toLowerCase()
-      )
-      .includes(normalizedUserRole);
+  // CEO Updates — only CEO can post
+  if (channelName === "ceo-updates") {
+    return normalizedUserRole === "ceo";
   }
+
+  // DMs and group DMs
+  if (activeChannel.is_private) {
+    return true;
+  }
+
+  // Public channel without restrictions
+  if (
+    !activeChannel.post_roles ||
+    activeChannel.post_roles.length === 0
+  ) {
+    return true;
+  }
+
+  return activeChannel.post_roles
+    .map((r) => r.trim().toLowerCase())
+    .includes(normalizedUserRole);
+}
+  
 
   // =========================================================
   // SEND MESSAGE
   // =========================================================
 
   async function sendMessage() {
-    if (!activeChannel || !userId) return;
+  if (!activeChannel || !userId) return;
 
-    if (!draft.trim() && !file) return;
+  if (!canPostHere()) {
+    alert(
+      activeChannel.name.trim().toLowerCase() === "ceo-updates"
+        ? "Only the CEO can post in this channel."
+        : "You do not have permission to post in this channel."
+    );
+    return;
+  }
+
+  if (!draft.trim() && !file) return;
+
 
     setSending(true);
 
@@ -1729,6 +1747,7 @@ export default function ChatPage() {
               .filter(
                 (c) => {
                   const hiddenChannels = [
+                    "general",
                     "service-team",
                     "technicians",
                     "vendors",
@@ -2077,7 +2096,9 @@ export default function ChatPage() {
           </div>
 
           {/* Header action cluster */}
-          <div className="flex items-center gap-1.5">
+          <div className="flex items-center gap-1.5 min-w-0 max-w-full overflow-x-auto [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
+          
+        
 
             {/* Notifications */}
             {userId && <ChatNotifications userId={userId} />}
@@ -2087,7 +2108,7 @@ export default function ChatPage() {
               <button
                 type="button"
                 onClick={() => setShowAudit(true)}
-                className="shrink-0 text-xs md:text-[12.5px] text-white/70 hover:text-white rounded-lg px-2.5 py-2 flex items-center hover:bg-white/[0.06] border border-transparent hover:border-white/[0.08] transition-all duration-150"
+                className="shrink-0 text-xs lg:text-[12.5px] text-white/70 hover:text-white rounded-lg px-2.5 py-2 flex items-center hover:bg-white/[0.06] border border-transparent hover:border-white/[0.08] transition-all duration-150"
                 title="Open chat audit log"
               >
                 <span className="text-[14px] leading-none">🛡️</span>
@@ -2130,7 +2151,7 @@ export default function ChatPage() {
               onClick={() =>
                 setShowSearch(true)
               }
-              className="shrink-0 flex items-center justify-center text-xs md:text-[12.5px] text-white/70 hover:text-white rounded-lg px-2.5 py-2 hover:bg-white/[0.06] border border-transparent hover:border-white/[0.08] transition-all duration-150"
+              className="hidden md:flex shrink-0 text-xs md:text-[12.5px] font-semibold text-[#0B0F1A] rounded-lg px-3 py-2 items-center gap-1.5 bg-gradient-to-b from-[#F0D9A8] to-[#E0BE7E] hover:from-[#F5E2BC] hover:to-[#E8C98E] shadow-[0_1px_0_rgba(255,255,255,0.4)_inset,0_4px_14px_-6px_rgba(224,190,126,0.6)] transition-all duration-150"
               title="Search messages"
             >
               <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">

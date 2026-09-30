@@ -503,18 +503,22 @@ export default function MobileMeetingRecording({
     return (
     <>
       {/* MOBILE BUTTON */}
-      <button
-        type="button"
-        onClick={openMeeting}
-        className="md:hidden fixed left-3 right-3 bottom-[90px] z-[9999] flex items-center justify-center gap-2 rounded-xl px-4 py-3 text-sm font-semibold text-white bg-gradient-to-b from-[#3D9BD6] to-[#2C7BB0] shadow-lg"
-        style={{
-          pointerEvents: "auto",
-          touchAction: "manipulation",
-        }}
-      >
-        🎙️ Meeting + MOM
-      </button>
+      <div
+  className="md:hidden fixed left-3 right-3 bottom-[90px] z-[9999] rounded-xl px-4 py-3 text-center bg-[#0E1320] border border-white/[0.08] shadow-lg"
+>
+  <p className="text-sm font-semibold text-white">
+    🎙️ Meeting Recording
+  </p>
 
+  <p className="text-xs text-white/50 mt-1">
+    Meeting recording is available on desktop/laptop.
+  </p>
+
+  <p className="text-xs text-white/50">
+    Please open InnoVibe Office on a desktop or laptop to record this meeting.
+  </p>
+</div>
+  
       {/* FULL-SCREEN MEETING OVERLAY */}
       {typeof document !== "undefined" &&
         createPortal(

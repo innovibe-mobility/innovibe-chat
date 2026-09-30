@@ -150,7 +150,8 @@ export default function ChatNotifications({ userId }: Props) {
         <div
           role="dialog"
           aria-label="Notifications"
-          className="fixed md:absolute left-3 right-3 md:left-auto md:right-0 top-[4.5rem] md:top-11 z-[100] w-auto md:w-80 max-h-[min(28rem,calc(100vh-6rem))] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0E1320] shadow-[0_24px_70px_-20px_rgba(0,0,0,0.8)] ring-1 ring-black/20"
+          className="fixed left-3 right-3 sm:left-auto sm:right-3 top-[4.5rem] z-[100] w-auto sm:w-80 max-h-[min(28rem,calc(100vh-6rem))] overflow-hidden rounded-xl border border-white/[0.1] bg-[#0E1320] shadow-[0_24px_70px_-20px_rgba(0,0,0,0.8)] ring-1 ring-black/20"
+          
         >
           <div className="sticky top-0 z-10 px-3.5 py-3 border-b border-white/[0.07] bg-[#0E1320]/95 backdrop-blur-xl flex items-center justify-between gap-3">
             <div>
